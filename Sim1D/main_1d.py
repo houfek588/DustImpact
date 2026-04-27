@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-from charging import charge
+from charging import calculate_equilibrium_potential, ENV_EARTH, MAT_ALUMINIUM
 import input_data_1d as input_data
 import sim_core_1d as core
 import plotting_1d as plt
@@ -16,7 +16,7 @@ import plotting_1d as plt
 if __name__ == "__main__":
     # 1. Spočítat rovnováhu
     # V_equilibrium = get_equilibrium_potential()
-    V_equilibrium = charge()
+    V_equilibrium = calculate_equilibrium_potential(ENV_EARTH, MAT_ALUMINIUM)
     print(f"=== STEP 1: Equilibrium charging ===")
     print(f"Calculated spacecraft potential: {V_equilibrium:.3f} V")
 

@@ -42,6 +42,7 @@ class SimulationToggles2D:
 @dataclass
 class SimulationParams2D:
     Vf: float
+    V_ant_bias: float
 
     # Fyzikální konstanty
     m_i: float = 27 * amu  # Hliníkový iont
@@ -59,7 +60,8 @@ class SimulationParams2D:
     x_antenna: float = 2.5
     y_antenna: float = 0.0
     r_antenna: float = 0.05  # Poloměr detekční oblasti antény [m]
-    V_ant_bias: float = 8.0
+    # V_ant_bias: float = 8.0
+
     w_width: float = 0.4  # Šířka citlivosti pro Ramo-Shockley ve 2D
     collection_efficiency: float = 0.80
     C_ant: float = 2e-12
@@ -110,7 +112,7 @@ class SimulationParams2D:
         self.save_interval = max(1, self.steps // 50)
 
 
-def setup_simulation_parameters_2d(Vf: float) -> Tuple[SimulationParams2D, SimulationToggles2D]:
+def setup_simulation_parameters_2d(Vf: float, Vf_antenne: float) -> Tuple[SimulationParams2D, SimulationToggles2D]:
     toggles = SimulationToggles2D()
-    params = SimulationParams2D(Vf=Vf)
+    params = SimulationParams2D(Vf=Vf, V_ant_bias=Vf_antenne)
     return params, toggles
