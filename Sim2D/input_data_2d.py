@@ -3,8 +3,11 @@
 
 from global_const import *
 import numpy as np
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict, fields
 from typing import Tuple
+import json
+import os
+
 
 # =============================================================================
 # POMOCNÉ FUNKCE PRO VÁHOVÉ POLE (2D)
@@ -26,6 +29,8 @@ def calc_Ew_2d(x: np.ndarray, y: np.ndarray, x_ant: float, y_ant: float, w_width
     return Ewx, Ewy
 
 
+
+
 # =============================================================================
 # NASTAVENÍ SIMULACE
 # =============================================================================
@@ -40,29 +45,51 @@ class SimulationToggles2D:
 
 
 @dataclass
+class PlottingConfig:
+    # Přepínače, které grafy/animace vůbec generovat a zobrazit
+    show_currents: bool = True
+    show_fields_anim: bool = True
+    show_weighting_field: bool = True
+    show_particles_anim: bool = True
+    show_velocity_anim: bool = True
+    show_phase_space_anim: bool = False
+
+    # Přepínače uložení na disk
+    save_plots: bool = False
+    export_data_csv: bool = False
+
+    # Názvy výstupních souborů
+    file_currents: str = "../outputs/out_2d_proudy_napeti.png"
+    file_fields_anim: str = "../outputs/out_2d_animace_pole_potencial.gif"
+    file_weighting: str = "out_2d_graf_vahove_pole.png"
+    file_particles_anim: str = "out_2d_animace_pozice_castic.gif"
+    file_velocity_anim: str = "../outputs/out_2d_animace_rychlosti.gif"
+    file_phase_space: str = "out_2d_animace_fazovy_prostor.gif"
+    file_csv: str = "out_2d_vysledky_simulace.csv"
+
+
+@dataclass
 class SimulationParams2D:
     Vf: float
     V_ant_bias: float
 
     # Fyzikální konstanty
-    m_i: float = 27 * amu  # Hliníkový iont
+    m_i_amu: float = 27.0  # Hliníkový iont (zadáno v AMU pro snazší zápis do JSONu)
     T_dust_eV: float = 2.0
-    N_particles: int = 15000  # Ve 2D je potřeba trochu více částic pro hladkost
+    N_particles: int = 15000
 
-    # Čas a prostor (2D Doména: x in [0, L], y in [-H, H])
+    # Čas a prostor
     dt: float = 1e-9
     t_max: float = 20e-6
     t_delay: float = 1e-6
-    L_domain: float = 5.0  # Osa X (Délka do prostoru)
-    H_domain: float = 2.5  # Osa Y (Výška od -2.5 do 2.5)
+    L_domain: float = 5.0
+    H_domain: float = 2.5
 
-    # Anténa (Umístěna v prostoru jako kruh/bod)
+    # Anténa
     x_antenna: float = 2.5
     y_antenna: float = 0.0
-    r_antenna: float = 0.05  # Poloměr detekční oblasti antény [m]
-    # V_ant_bias: float = 8.0
-
-    w_width: float = 0.4  # Šířka citlivosti pro Ramo-Shockley ve 2D
+    r_antenna: float = 0.05
+    w_width: float = 0.4
     collection_efficiency: float = 0.80
     C_ant: float = 2e-12
     R_ant: float = 100e3
@@ -70,10 +97,11 @@ class SimulationParams2D:
     # Mřížka (Grid)
     Nx: int = 100
     Ny: int = 100
-    A_sim: float = 1.0  # Expanzní rozměr v ose Z (hloubka 1m)
-    integrator: str = 'leapfrog'  # Leapfrog je pro 2D optimální kompromis
+    A_sim: float = 1.0
+    integrator: str = 'leapfrog'
 
-    # Předpočítané interní hodnoty
+    # ================== Interní kalkulované proměnné ==================
+    m_i: float = field(init=False)
     debye_length: float = field(init=False)
     v_th_e: float = field(init=False)
     v_th_i: float = field(init=False)
@@ -90,17 +118,18 @@ class SimulationParams2D:
     save_interval: int = field(init=False)
 
     def __post_init__(self):
+        # Převod z AMU na kg
+        self.m_i = self.m_i_amu * amu
+
         self.debye_length = np.sqrt((eps_0 * Te_eV * e) / (n_sw * e ** 2))
         self.v_th_e = np.sqrt(2 * e * self.T_dust_eV / m_e)
         self.v_th_i = np.sqrt(2 * e * self.T_dust_eV / self.m_i)
 
-        # Makronáboj (např. 50 pC celkem)
         self.q_macro = 50e-12 / self.N_particles
 
         self.steps = int(self.t_max / self.dt)
         self.time_array = np.linspace(0, self.t_max, self.steps)
 
-        # Konstrukce 2D mřížky
         self.x_grid = np.linspace(0, self.L_domain, self.Nx)
         self.y_grid = np.linspace(-self.H_domain, self.H_domain, self.Ny)
         self.dx = self.x_grid[1] - self.x_grid[0]
@@ -112,7 +141,51 @@ class SimulationParams2D:
         self.save_interval = max(1, self.steps // 50)
 
 
-def setup_simulation_parameters_2d(Vf: float, Vf_antenne: float) -> Tuple[SimulationParams2D, SimulationToggles2D]:
-    toggles = SimulationToggles2D()
-    params = SimulationParams2D(Vf=Vf, V_ant_bias=Vf_antenne)
-    return params, toggles
+# =============================================================================
+# MANAŽER KONFIGURAČNÍHO SOUBORU
+# =============================================================================
+
+def setup_simulation_parameters_2d(Vf: float, Vf_antenne: float, config_file: str = "config_2d.json") -> Tuple[
+    SimulationParams2D, SimulationToggles2D, PlottingConfig]:
+    """
+    Načte nastavení ze souboru JSON. Pokud soubor neexistuje, automaticky ho vytvoří
+    s výchozími hodnotami, aby ho uživatel mohl následně editovat.
+    """
+    if not os.path.exists(config_file):
+        print(f"Konfigurační soubor '{config_file}' nenalezen. Vytvářím výchozí šablonu...")
+
+        # Extrakce pouze konfigurovatelných parametrů (init=True) a bez fixních napětí (Vf, V_ant_bias),
+        # protože ty se počítají dynamicky před startem simulace.
+        dummy_params = SimulationParams2D(Vf=0.0, V_ant_bias=0.0)
+        params_dict = {
+            f.name: getattr(dummy_params, f.name)
+            for f in fields(SimulationParams2D)
+            if f.init and f.name not in ['Vf', 'V_ant_bias']
+        }
+
+        default_config = {
+            "toggles": asdict(SimulationToggles2D()),
+            "params": params_dict,
+            "plotting": asdict(PlottingConfig())
+        }
+
+        with open(config_file, 'w', encoding='utf-8') as f:
+            json.dump(default_config, f, indent=4, ensure_ascii=False)
+
+    # Načtení dat z konfiguračního souboru
+    with open(config_file, 'r', encoding='utf-8') as f:
+        config_data = json.load(f)
+
+    # 1. Toggles
+    toggles = SimulationToggles2D(**config_data.get('toggles', {}))
+
+    # 2. Params (napětí z výpočtu, zbytek ze souboru)
+    params_kwargs = config_data.get('params', {})
+    params_kwargs['Vf'] = Vf
+    params_kwargs['V_ant_bias'] = Vf_antenne
+    params = SimulationParams2D(**params_kwargs)
+
+    # 3. Nastavení vizualizací a exportů
+    plot_config = PlottingConfig(**config_data.get('plotting', {}))
+
+    return params, toggles, plot_config
