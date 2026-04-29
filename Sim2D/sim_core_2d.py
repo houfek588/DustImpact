@@ -4,6 +4,7 @@
 """
 MODUL B: Výpočetní jádro 2D (Particle-in-Cell)
 Využívá scipy.sparse pro masivně paralelní řešení Poissonovy rovnice ve 2D.
+Nyní plně podporuje dynamické a volitelné množství detekčních antén.
 """
 
 import numpy as np
@@ -19,18 +20,17 @@ class DustImpactSimulation2D:
     def __init__(self, params: SimulationParams2D, toggles: SimulationToggles2D):
         self.p = params
         self.toggles = toggles
+        self.num_antennas = len(self.p.antennas)
 
         # ---------------------------------------------------------------------
-        # INICIALIZACE ČÁSTIC (2D emise)
+        # INICIALIZACE ČÁSTIC
         # ---------------------------------------------------------------------
-        # Emise pouze do kladného poloprostoru osy X (odraz od sondy)
         self.vx_e = np.abs(np.random.normal(0, self.p.v_th_e, self.p.N_particles))
         self.vy_e = np.random.normal(0, self.p.v_th_e, self.p.N_particles)
 
         self.vx_i = np.abs(np.random.normal(0, self.p.v_th_i, self.p.N_particles))
         self.vy_i = np.random.normal(0, self.p.v_th_i, self.p.N_particles)
 
-        # Startovní pozice: bod dopadu (0, 0)
         self.x_e = np.zeros(self.p.N_particles)
         self.y_e = np.zeros(self.p.N_particles)
         self.x_i = np.zeros(self.p.N_particles)
@@ -38,18 +38,20 @@ class DustImpactSimulation2D:
 
         self.active_e = np.zeros(self.p.N_particles, dtype=bool)
         self.active_i = np.zeros(self.p.N_particles, dtype=bool)
-        self.was_outside_e = np.zeros(self.p.N_particles, dtype=bool)
-        self.was_outside_i = np.zeros(self.p.N_particles, dtype=bool)
+
+        # Sledování dopadů pro KAZDOU anténu zvlášť (matice: num_antennas x N_particles)
+        self.was_outside_e = np.zeros((self.num_antennas, self.p.N_particles), dtype=bool)
+        self.was_outside_i = np.zeros((self.num_antennas, self.p.N_particles), dtype=bool)
 
         self.cloud_injected = False
 
-        # Výsledková pole
-        self.ind_curr_e = np.zeros(self.p.steps)
-        self.ind_curr_i = np.zeros(self.p.steps)
-        self.col_curr_e = np.zeros(self.p.steps)
-        self.col_curr_i = np.zeros(self.p.steps)
-        self.tot_curr = np.zeros(self.p.steps)
-        self.voltage_ant = np.zeros(self.p.steps)
+        # Výsledková pole jsou nyní 2D matice (num_antennas x steps)
+        self.ind_curr_e = np.zeros((self.num_antennas, self.p.steps))
+        self.ind_curr_i = np.zeros((self.num_antennas, self.p.steps))
+        self.col_curr_e = np.zeros((self.num_antennas, self.p.steps))
+        self.col_curr_i = np.zeros((self.num_antennas, self.p.steps))
+        self.tot_curr = np.zeros((self.num_antennas, self.p.steps))
+        self.voltage_ant = np.zeros((self.num_antennas, self.p.steps))
 
         # Mřížková pole (Nx x Ny matice)
         self.rho_grid = np.zeros((self.p.Nx, self.p.Ny))
@@ -57,9 +59,14 @@ class DustImpactSimulation2D:
         self.Ex_self = np.zeros((self.p.Nx, self.p.Ny))
         self.Ey_self = np.zeros((self.p.Nx, self.p.Ny))
 
-        # Sestavení masky antény na mřížce (kruh s poloměrem r_antenna)
-        r_sq = (self.p.X_mat - self.p.x_antenna) ** 2 + (self.p.Y_mat - self.p.y_antenna) ** 2
-        self.ant_mask = r_sq <= self.p.r_antenna ** 2
+        # Sestavení masek všech antén na mřížce
+        self.ant_masks = []
+        self.combined_ant_mask = np.zeros((self.p.Nx, self.p.Ny), dtype=bool)
+        for ant in self.p.antennas:
+            r_sq = (self.p.X_mat - ant['x']) ** 2 + (self.p.Y_mat - ant['y']) ** 2
+            mask = r_sq <= ant['r'] ** 2
+            self.ant_masks.append(mask)
+            self.combined_ant_mask |= mask
 
         # Sestavení řídkých matic pro řešič a předvýpočet pole pozadí
         self._build_poisson_solver()
@@ -74,53 +81,45 @@ class DustImpactSimulation2D:
         return i * self.p.Ny + j
 
     def _build_poisson_solver(self):
-        """ Sestaví Laplacián matici A pro Poissonovu rovnici a faktorizuje ji. """
         Nx, Ny = self.p.Nx, self.p.Ny
         N_tot = Nx * Ny
 
-        # Laplacián matice
         A_self = sp.lil_matrix((N_tot, N_tot))
         A_bg = sp.lil_matrix((N_tot, N_tot))
 
         dx2, dy2 = self.p.dx ** 2, self.p.dy ** 2
 
-        # Sestavení matice diferencí
         for i in range(Nx):
             for j in range(Ny):
                 k = self._get_1d_idx(i, j)
 
-                # Dirichlet Okrajové podmínky (Sonda: x=0, Vesmír: x=L, y=+-H, Anténa)
                 is_boundary = (i == 0) or (i == Nx - 1) or (j == 0) or (j == Ny - 1)
-                is_antenna = self.ant_mask[i, j]
+                is_antenna = self.combined_ant_mask[i, j]
 
                 if is_boundary or is_antenna:
                     A_self[k, k] = 1.0
                     A_bg[k, k] = 1.0
                 else:
-                    # Klasický centrální diferenční kříž
                     A_self[k, k] = -2 / dx2 - 2 / dy2
                     A_self[k, self._get_1d_idx(i - 1, j)] = 1 / dx2
                     A_self[k, self._get_1d_idx(i + 1, j)] = 1 / dx2
                     A_self[k, self._get_1d_idx(i, j - 1)] = 1 / dy2
                     A_self[k, self._get_1d_idx(i, j + 1)] = 1 / dy2
 
-                    # Pro pozadí řešíme Poisson-Boltzmannovu rovnici: nabla^2 V - V/lam_D^2 = 0
                     A_bg[k, k] = (-2 / dx2 - 2 / dy2) - (1.0 / self.p.debye_length ** 2)
                     A_bg[k, self._get_1d_idx(i - 1, j)] = 1 / dx2
                     A_bg[k, self._get_1d_idx(i + 1, j)] = 1 / dx2
                     A_bg[k, self._get_1d_idx(i, j - 1)] = 1 / dy2
                     A_bg[k, self._get_1d_idx(i, j + 1)] = 1 / dy2
 
-        # Převedení do CSC formátu pro extrémně rychlé řešení a odstranění varování
         self.A_self_csc = A_self.tocsc()
         self.A_bg_csc = A_bg.tocsc()
 
-        # Uložení LU dekompozice do paměti (řešení rovnice se pak stane O(N) složitostí)
         self.solver_self = spla.factorized(self.A_self_csc)
         self.solver_bg = spla.factorized(self.A_bg_csc)
 
         # ---------------------------------------------------------
-        # PŘEDVÝPOČET STATICKÉHO POZADÍ (Background Field)
+        # PŘEDVÝPOČET STATICKÉHO POZADÍ
         # ---------------------------------------------------------
         self.V_bg_grid = np.zeros((Nx, Ny))
         self.Ex_bg = np.zeros((Nx, Ny))
@@ -133,60 +132,50 @@ class DustImpactSimulation2D:
                     k = self._get_1d_idx(i, j)
                     y_val = self.p.y_grid[j]
 
-                    # ÚPRAVA GEOMETRIE: Sonda se nachází pouze od y = -1 do y = 1
                     if i == 0 and -1.0 <= y_val <= 1.0:
                         b_bg[k] = self.p.Vf
-                    elif self.toggles.enable_antenna_bias and self.ant_mask[i, j]:
-                        b_bg[k] = self.p.V_ant_bias
+                    elif self.toggles.enable_antenna_bias and self.combined_ant_mask[i, j]:
+                        # Zjištění, která z antén pokrývá tento bod
+                        for a_idx, mask in enumerate(self.ant_masks):
+                            if mask[i, j]:
+                                b_bg[k] = self.p.antennas[a_idx]['V_bias']
+                                break
                     elif (i == 0) or (i == Nx - 1) or (j == 0) or (j == Ny - 1):
-                        # Hluboký vesmír (včetně zbytku levé stěny, kde sonda chybí)
                         b_bg[k] = 0.0
 
-            # Vyřešení 2D Poisson-Boltzmannovy rovnice a přeformátování na matici
             V_bg_1d = self.solver_bg(b_bg)
             self.V_bg_grid = V_bg_1d.reshape((Nx, Ny))
-
-            # Gradient pro získání elektrického pole (Ex, Ey)
             self.Ex_bg, self.Ey_bg = np.gradient(-self.V_bg_grid, self.p.dx, self.p.dy)
 
     def _solve_poisson_equation(self):
-        """ Řeší vlastní plazmatické pole (Self-Field) z poloh částic """
         if not self.cloud_injected or not self.toggles.enable_self_field:
             return
 
         Nx, Ny = self.p.Nx, self.p.Ny
 
-        # 1. 2D Histogram částic (Charge Deposition)
         edges_x = np.append(self.p.x_grid - self.p.dx / 2, self.p.x_grid[-1] + self.p.dx / 2)
         edges_y = np.append(self.p.y_grid - self.p.dy / 2, self.p.y_grid[-1] + self.p.dy / 2)
 
         counts_e, _, _ = np.histogram2d(self.x_e[self.active_e], self.y_e[self.active_e], bins=(edges_x, edges_y))
         counts_i, _, _ = np.histogram2d(self.x_i[self.active_i], self.y_i[self.active_i], bins=(edges_x, edges_y))
 
-        # Hustota náboje na mřížce
         self.rho_grid = (counts_i - counts_e) * (self.p.q_macro / self.p.A_sim) / (self.p.dx * self.p.dy)
 
-        # 2. Vytvoření vektoru pravé strany b = -rho / eps_0
         b_self = np.zeros(Nx * Ny)
         for i in range(Nx):
             for j in range(Ny):
                 k = self._get_1d_idx(i, j)
                 is_boundary = (i == 0) or (i == Nx - 1) or (j == 0) or (j == Ny - 1)
-                if is_boundary or self.ant_mask[i, j]:
-                    b_self[k] = 0.0  # Dirichlet V=0 pro self-field na elektrodách i ve vesmíru
+                if is_boundary or self.combined_ant_mask[i, j]:
+                    b_self[k] = 0.0
                 else:
                     b_self[k] = -self.rho_grid[i, j] / eps_0
 
-        # 3. Vyřešení maticové rovnice V = A^-1 * b (Bleskově díky spla.factorized)
         V_self_1d = self.solver_self(b_self)
         self.V_self_grid = V_self_1d.reshape((Nx, Ny))
-
-        # 4. Elektrické pole
         self.Ex_self, self.Ey_self = np.gradient(-self.V_self_grid, self.p.dx, self.p.dy)
 
     def _interp_field(self, x: np.ndarray, y: np.ndarray, Field_matrix: np.ndarray) -> np.ndarray:
-        """ Rychlá vektorizovaná 2D bilineární interpolace (Grid-to-Particle) """
-        # Výpočet zlomkových indexů
         idx_x = (x - self.p.x_grid[0]) / self.p.dx
         idx_y = (y - self.p.y_grid[0]) / self.p.dy
 
@@ -196,13 +185,11 @@ class DustImpactSimulation2D:
         tx = idx_x - i
         ty = idx_y - j
 
-        # Vytáhnutí hodnot z rohů buňky mřížky
         F00 = Field_matrix[i, j]
         F10 = Field_matrix[i + 1, j]
         F01 = Field_matrix[i, j + 1]
         F11 = Field_matrix[i + 1, j + 1]
 
-        # Bilineární rovnice
         return (1 - tx) * (1 - ty) * F00 + tx * (1 - ty) * F10 + (1 - tx) * ty * F01 + tx * ty * F11
 
     def _get_accel(self, x_act: np.ndarray, y_act: np.ndarray, mass: float, phys_charge: float) -> Tuple[
@@ -238,63 +225,67 @@ class DustImpactSimulation2D:
 
     def _push_species(self, x: np.ndarray, y: np.ndarray, vx: np.ndarray, vy: np.ndarray,
                       active: np.ndarray, was_outside: np.ndarray, mass: float, phys_charge: float,
-                      macro_charge: float) -> Tuple[float, float]:
+                      macro_charge: float) -> Tuple[np.ndarray, np.ndarray]:
+
+        col_currs = np.zeros(self.num_antennas)
+        ind_currs = np.zeros(self.num_antennas)
 
         if not np.any(active):
-            return 0.0, 0.0
+            return col_currs, ind_currs
 
         self._integrate_motion(x, y, vx, vy, active, mass, phys_charge, self.p.dt)
 
-        # Dopadová logika (2D průlet kruhovou anténou)
-        r_sq = (x[active] - self.p.x_antenna) ** 2 + (y[active] - self.p.y_antenna) ** 2
-        is_outside = r_sq > self.p.r_antenna ** 2
+        # Pracujeme s kopií masky active, do které budeme zapisovat smazané částice
+        new_active = active.copy()
 
-        crossed_ant = ~is_outside & was_outside[active]
+        for a_idx, ant in enumerate(self.p.antennas):
+            x_act = x[new_active]
+            y_act = y[new_active]
 
-        # OPRAVA: Aktualizace stavu was_outside PŘEDTÍM, než ze simulace trvale smažeme částice,
-        #         čímž se změní délka a struktura masky 'active'.
-        was_outside[active] = is_outside
+            r_sq = (x_act - ant['x']) ** 2 + (y_act - ant['y']) ** 2
+            is_outside = r_sq > ant['r'] ** 2
 
-        col_curr = 0.0
-        if self.toggles.enable_antenna_collection and np.any(crossed_ant):
-            n_crossed = np.sum(crossed_ant)
-            absorbed_mask = np.random.rand(n_crossed) < self.p.collection_efficiency
+            was_out_act = was_outside[a_idx, new_active]
+            crossed_ant = ~is_outside & was_out_act
+            was_outside[a_idx, new_active] = is_outside
 
-            # Mapování zpět do globálního pole active
-            global_crossed_indices = np.where(active)[0][crossed_ant]
-            absorbed_global_indices = global_crossed_indices[absorbed_mask]
+            if self.toggles.enable_antenna_collection and np.any(crossed_ant):
+                n_crossed = np.sum(crossed_ant)
+                absorbed_mask = np.random.rand(n_crossed) < ant['collection_eff']
 
-            dQ_coll = len(absorbed_global_indices) * macro_charge
-            col_curr = dQ_coll / self.p.dt
-            active[absorbed_global_indices] = False
+                global_active_idx = np.where(new_active)[0]
+                global_crossed_idx = global_active_idx[crossed_ant]
+                absorbed_global_indices = global_crossed_idx[absorbed_mask]
 
-        # Odstranění částic letících mimo box
-        active[active & (x <= 0)] = False
-        active[active & (x >= self.p.L_domain)] = False
-        active[active & (y <= -self.p.H_domain)] = False
-        active[active & (y >= self.p.H_domain)] = False
+                dQ_coll = len(absorbed_global_indices) * macro_charge
+                col_currs[a_idx] = dQ_coll / self.p.dt
+                new_active[absorbed_global_indices] = False
 
-        ind_curr = 0.0
-        if np.any(active):
-            Ewx, Ewy = calc_Ew_2d(x[active], y[active], self.p.x_antenna, self.p.y_antenna, self.p.w_width)
-            # Ramo-Shockley ve 2D je skalární součin v_vec dot Ew_vec
-            # OPRAVA ZNAMENKA: Měříme proud vtékající DO RC obvodu, nikoliv z něj na anténu
-            v_dot_Ew = vx[active] * Ewx + vy[active] * Ewy
-            ind_curr = -np.sum(macro_charge * v_dot_Ew)
+            if np.any(new_active):
+                Ewx, Ewy = calc_Ew_2d(x[new_active], y[new_active], ant['x'], ant['y'], ant['w_width'])
+                v_dot_Ew = vx[new_active] * Ewx + vy[new_active] * Ewy
+                ind_currs[a_idx] = -np.sum(macro_charge * v_dot_Ew)
 
-        return col_curr, ind_curr
+        new_active[new_active & (x <= 0)] = False
+        new_active[new_active & (x >= self.p.L_domain)] = False
+        new_active[new_active & (y <= -self.p.H_domain)] = False
+        new_active[new_active & (y >= self.p.H_domain)] = False
+
+        active[:] = new_active
+        return col_currs, ind_currs
 
     def _update_circuit(self, step: int):
-        I_tot = (self.ind_curr_e[step] + self.ind_curr_i[step] +
-                 self.col_curr_e[step] + self.col_curr_i[step])
-        self.tot_curr[step] = I_tot
+        for a_idx, ant in enumerate(self.p.antennas):
+            I_tot = (self.ind_curr_e[a_idx, step] + self.ind_curr_i[a_idx, step] +
+                     self.col_curr_e[a_idx, step] + self.col_curr_i[a_idx, step])
+            self.tot_curr[a_idx, step] = I_tot
 
-        if step > 0:
-            if self.toggles.enable_rc_circuit:
-                dV_dt = (I_tot / self.p.C_ant) - (self.voltage_ant[step - 1] / (self.p.R_ant * self.p.C_ant))
-            else:
-                dV_dt = I_tot / self.p.C_ant
-            self.voltage_ant[step] = self.voltage_ant[step - 1] + dV_dt * self.p.dt
+            if step > 0:
+                if self.toggles.enable_rc_circuit:
+                    dV_dt = (I_tot / ant['C']) - (self.voltage_ant[a_idx, step - 1] / (ant['R'] * ant['C']))
+                else:
+                    dV_dt = I_tot / ant['C']
+                self.voltage_ant[a_idx, step] = self.voltage_ant[a_idx, step - 1] + dV_dt * self.p.dt
 
     def _save_history(self, current_time: float):
         self.history['V'].append((self.V_bg_grid + self.V_self_grid).copy())
@@ -312,13 +303,13 @@ class DustImpactSimulation2D:
         self.history['y_i'].append(hy_i)
 
         hvx_e = np.where(self.active_e, self.vx_e, np.nan)[::self.p.plot_stride]
-        hvx_i = np.where(self.active_i, self.vx_i, np.nan)[::self.p.plot_stride]
-        self.history['vx_e'].append(hvx_e)
-        self.history['vx_i'].append(hvx_i)
-
         hvy_e = np.where(self.active_e, self.vy_e, np.nan)[::self.p.plot_stride]
+        hvx_i = np.where(self.active_i, self.vx_i, np.nan)[::self.p.plot_stride]
         hvy_i = np.where(self.active_i, self.vy_i, np.nan)[::self.p.plot_stride]
+
+        self.history['vx_e'].append(hvx_e)
         self.history['vy_e'].append(hvy_e)
+        self.history['vx_i'].append(hvx_i)
         self.history['vy_i'].append(hvy_i)
 
     def _inject_cloud(self):
@@ -339,7 +330,7 @@ class DustImpactSimulation2D:
             self.vy_i[self.active_i] -= 0.5 * ay_i * self.p.dt
 
     def run(self) -> Dict[str, Any]:
-        print(f"Spouštím 2D Simulaci... Mřížka: {self.p.Nx}x{self.p.Ny}")
+        print(f"Spouštím 2D Simulaci... Mřížka: {self.p.Nx}x{self.p.Ny} | Antén: {self.num_antennas}")
 
         for step in range(self.p.steps):
             current_time = step * self.p.dt
@@ -353,14 +344,14 @@ class DustImpactSimulation2D:
                 c_e, i_e = self._push_species(
                     self.x_e, self.y_e, self.vx_e, self.vy_e, self.active_e, self.was_outside_e,
                     m_e, -e, -self.p.q_macro)
-                self.col_curr_e[step] = c_e
-                self.ind_curr_e[step] = i_e
+                self.col_curr_e[:, step] = c_e
+                self.ind_curr_e[:, step] = i_e
 
                 c_i, i_i = self._push_species(
                     self.x_i, self.y_i, self.vx_i, self.vy_i, self.active_i, self.was_outside_i,
                     self.p.m_i, e, self.p.q_macro)
-                self.col_curr_i[step] = c_i
-                self.ind_curr_i[step] = i_i
+                self.col_curr_i[:, step] = c_i
+                self.ind_curr_i[:, step] = i_i
 
             self._update_circuit(step)
 
@@ -372,14 +363,21 @@ class DustImpactSimulation2D:
     def _post_process(self) -> Dict[str, Any]:
         smooth_window = 100
         kernel = np.ones(smooth_window) / smooth_window
-        smooth_induced = np.convolve(self.ind_curr_e + self.ind_curr_i, kernel, mode='same')
-        smooth_collected = np.convolve(self.col_curr_e + self.col_curr_i, kernel, mode='same')
-        smooth_total = np.convolve(self.tot_curr, kernel, mode='same')
 
-        return {
-            'smooth_induced': smooth_induced,
-            'smooth_collected': smooth_collected,
-            'smooth_total': smooth_total,
+        results = {
+            'smooth_induced': [],
+            'smooth_collected': [],
+            'smooth_total': [],
             'voltage_ant': self.voltage_ant,
             'history': self.history
         }
+
+        for a_idx in range(self.num_antennas):
+            s_ind = np.convolve(self.ind_curr_e[a_idx] + self.ind_curr_i[a_idx], kernel, mode='same')
+            s_col = np.convolve(self.col_curr_e[a_idx] + self.col_curr_i[a_idx], kernel, mode='same')
+            s_tot = np.convolve(self.tot_curr[a_idx], kernel, mode='same')
+            results['smooth_induced'].append(s_ind)
+            results['smooth_collected'].append(s_col)
+            results['smooth_total'].append(s_tot)
+
+        return results

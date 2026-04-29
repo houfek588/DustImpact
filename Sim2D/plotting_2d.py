@@ -3,7 +3,7 @@
 
 """
 MODUL C: Vizualizace 2D Simulace a export do souborů
-Zahrnuje čtení konfigurace 'PlottingConfig' z JSON souboru pro řízení výstupů.
+Nyní adaptováno pro dynamický počet detekčních antén.
 """
 
 import numpy as np
@@ -33,24 +33,28 @@ def _plot_currents_and_voltage(results: Dict[str, Any], params: SimulationParams
     fig1, (ax1a, ax1b) = plt.subplots(2, 1, figsize=(10, 8))
     fig1.canvas.manager.set_window_title('2D Signály: Proudy a Napětí')
 
-    ax1a.plot(params.time_array * 1e6, results['smooth_induced'] * 1e9, color='blue', lw=1.5,
-              label='Indukovaný (Ramo-Shockley)')
-    ax1a.plot(params.time_array * 1e6, results['smooth_collected'] * 1e9, color='red', lw=1.5,
-              label='Nasbíraný (Dopady)')
-    ax1a.plot(params.time_array * 1e6, results['smooth_total'] * 1e9, color='black', lw=2, linestyle=':',
-              label='Celkový')
+    colors = ['blue', 'red', 'green', 'orange', 'purple', 'brown']
+
+    for a_idx, ant in enumerate(params.antennas):
+        c = colors[a_idx % len(colors)]
+        # Pokud je víc antén, vykreslíme pro přehlednost plnou čarou jen jejich celkové proudy
+        ax1a.plot(params.time_array * 1e6, results['smooth_total'][a_idx] * 1e9, color=c, lw=2,
+                  label=f'Celkový proud (Anténa {a_idx + 1})')
+        # ... a naznačíme tečkovaně Ramo-Shockleyho indukci
+        ax1a.plot(params.time_array * 1e6, results['smooth_induced'][a_idx] * 1e9, color=c, ls=':', alpha=0.5)
+
+        tau_us = ant['R'] * ant['C'] * 1e6
+        ax1b.plot(params.time_array * 1e6, results['voltage_ant'][a_idx] * 1e3, color=c, lw=2.5,
+                  label=f'Napětí Antény {a_idx + 1} ($\\tau$ = {tau_us:.1f} µs)')
 
     ax1a.axvline(x=params.t_delay * 1e6, color='grey', linestyle='--', alpha=0.7)
-    ax1a.set_title(f"Proudy tekoucí do 2D antény (x = {params.x_antenna} m)")
+    ax1a.set_title("Celkové proudy tekoucí do jednotlivých antén")
     ax1a.set_ylabel("Proud [nA]")
     ax1a.legend(loc='upper right')
     ax1a.grid(True, linestyle=':')
 
-    tau_us = params.R_ant * params.C_ant * 1e6
-    ax1b.plot(params.time_array * 1e6, results['voltage_ant'] * 1e3, color='green', lw=2.5,
-              label=f'Napětí ($\\tau$ = {tau_us:.1f} µs)')
     ax1b.axvline(x=params.t_delay * 1e6, color='grey', linestyle='--', alpha=0.7)
-    ax1b.set_title("Odezva napětí (RC Obvod)")
+    ax1b.set_title("Odezva napětí paralelních RC Obvodů")
     ax1b.set_xlabel("Čas [µs]")
     ax1b.set_ylabel("Napětí [mV]")
     ax1b.legend(loc='upper right')
@@ -90,13 +94,19 @@ def _animate_2d_fields(hist: Dict[str, Any], params: SimulationParams2D, plot_cf
     ax_rho.set_xlabel("x [m]")
     ax_rho.set_ylabel("y [m]")
 
-    circle_V = plt.Circle((params.x_antenna, params.y_antenna), params.r_antenna, color='white', fill=False, ls='--')
-    circle_rho = plt.Circle((params.x_antenna, params.y_antenna), params.r_antenna, color='black', fill=False, ls='--')
-    ax_V.add_patch(circle_V)
-    ax_rho.add_patch(circle_rho)
-
+    # Vykreslení těla sondy
     ax_V.axvline(x=0, ymin=0.3, ymax=0.7, color='white', lw=4, alpha=0.5, label='Povrch sondy')
     ax_rho.axvline(x=0, ymin=0.3, ymax=0.7, color='black', lw=4, alpha=0.5, label='Povrch sondy')
+
+    # Vykreslení všech antén
+    for a_idx, ant in enumerate(params.antennas):
+        circle_V = plt.Circle((ant['x'], ant['y']), ant['r'], color='white', fill=False, ls='--')
+        circle_rho = plt.Circle((ant['x'], ant['y']), ant['r'], color='black', fill=False, ls='--')
+        ax_V.add_patch(circle_V)
+        ax_rho.add_patch(circle_rho)
+        # Přidat textovou popisku k první anténě, aby to nedělalo duplicity v legendě
+        if a_idx == 0:
+            circle_rho.set_label('Antény')
 
     time_text = ax_V.text(0.02, 0.90, '', transform=ax_V.transAxes, color='white', weight='bold')
 
@@ -121,21 +131,26 @@ def _plot_weighting_field(params: SimulationParams2D, plot_cfg: PlottingConfig) 
         return
 
     fig4, ax4 = plt.subplots(figsize=(10, 4))
-    fig4.canvas.manager.set_window_title('Ramo-Shockley: Citlivost antény')
+    fig4.canvas.manager.set_window_title('Ramo-Shockley: Citlivost antén')
+    colors = ['blue', 'red', 'green', 'orange', 'purple', 'brown']
 
-    y_slice = np.full_like(params.x_grid, params.y_antenna)
-    Vw_1d = calc_Vw_2d(params.x_grid, y_slice, params.x_antenna, params.y_antenna, params.w_width)
-    ax4.plot(params.x_grid, Vw_1d, lw=2, color='orange', linestyle='--', label='Váhový potenciál $V_w(x)$')
+    for a_idx, ant in enumerate(params.antennas):
+        c = colors[a_idx % len(colors)]
+        y_slice = np.full_like(params.x_grid, ant['y'])
 
-    Ewx, _ = calc_Ew_2d(params.x_grid, y_slice, params.x_antenna, params.y_antenna, params.w_width)
-    ax4.plot(params.x_grid, Ewx, lw=2, color='magenta', label='Váhové pole $E_{w,x}(x)$')
+        Vw_1d = calc_Vw_2d(params.x_grid, y_slice, ant['x'], ant['y'], ant['w_width'])
+        ax4.plot(params.x_grid, Vw_1d, color=c, lw=2, linestyle='--', label=f'$V_w$ (Anténa {a_idx + 1})')
 
-    ax4.axvline(x=params.x_antenna, color='red', linestyle='-', alpha=0.6, lw=2, label='Umístění antény')
+        Ewx, _ = calc_Ew_2d(params.x_grid, y_slice, ant['x'], ant['y'], ant['w_width'])
+        ax4.plot(params.x_grid, Ewx, color=c, lw=2, label=f'$E_{{w,x}}$ (Anténa {a_idx + 1})')
+
+        ax4.axvline(x=ant['x'], color=c, linestyle='-', alpha=0.3, lw=2)
+
     ax4.axhline(y=0, color='black', lw=1, alpha=0.5)
-    ax4.set_title("1D řez váhovou funkcí přes střed antény (Bezkontaktní měření)")
+    ax4.set_title("1D řezy váhovou funkcí pro všechny zapojené antény")
     ax4.set_xlabel("Vzdálenost x [m]")
     ax4.set_ylabel("Amplituda citlivosti")
-    ax4.legend(loc='upper left')
+    ax4.legend(loc='upper left', ncol=min(3, len(params.antennas)))
     ax4.grid(True, linestyle=':', alpha=0.7)
     fig4.tight_layout()
 
@@ -155,10 +170,11 @@ def _animate_2d_particles(hist: Dict[str, Any], params: SimulationParams2D, plot
     scat_e = ax_pos.scatter([], [], s=2, color='red', alpha=0.3, label='Elektrony')
     scat_i = ax_pos.scatter([], [], s=2, color='blue', alpha=0.3, label='Ionty')
 
-    circle = plt.Circle((params.x_antenna, params.y_antenna), params.r_antenna, color='black', fill=False, ls='--',
-                        lw=2, label='Detekční Anténa')
-    ax_pos.add_patch(circle)
     ax_pos.axvline(x=0, ymin=0.3, ymax=0.7, color='grey', lw=4, alpha=0.5, label='Povrch sondy')
+
+    for a_idx, ant in enumerate(params.antennas):
+        circle = plt.Circle((ant['x'], ant['y']), ant['r'], color='black', fill=False, ls='--', lw=2)
+        ax_pos.add_patch(circle)
 
     ax_pos.set_xlim(0, params.L_domain)
     ax_pos.set_ylim(-params.H_domain, params.H_domain)
@@ -223,11 +239,11 @@ def _animate_velocity_distribution(hist: Dict[str, Any], plot_cfg: PlottingConfi
 
         max_y = 10
         if len(v_mag_e) > 1:
-            ce, be = np.histogram(v_mag_e, bins=150, range=(v_mag_min, v_mag_max + pad))
+            ce, be = np.histogram(v_mag_e, bins=500, range=(v_mag_min, v_mag_max + pad))
             line_ve.set_data((be[:-1] + be[1:]) / 2, ce)
             max_y = max(max_y, ce.max())
         if len(v_mag_i) > 1:
-            ci, bi = np.histogram(v_mag_i, bins=150, range=(v_mag_min, v_mag_max + pad))
+            ci, bi = np.histogram(v_mag_i, bins=500, range=(v_mag_min, v_mag_max + pad))
             line_vi.set_data((bi[:-1] + bi[1:]) / 2, ci)
             max_y = max(max_y, ci.max())
 
@@ -257,7 +273,8 @@ def _animate_phase_space(hist: Dict[str, Any], params: SimulationParams2D, plot_
     ax_ps_e.set_xlabel("Vzdálenost x [m]")
     ax_ps_e.set_ylabel("Dopředná rychlost $v_{x,e}$ [m/s]")
     ax_ps_e.set_xlim(0, params.L_domain)
-    ax_ps_e.axvline(x=params.x_antenna, color='black', linestyle='--', alpha=0.5)
+    for ant in params.antennas:
+        ax_ps_e.axvline(x=ant['x'], color='black', linestyle='--', alpha=0.5)
     ax_ps_e.grid(True, linestyle=':', alpha=0.5)
 
     scat_ps_i = ax_ps_i.scatter([], [], s=1, color='blue', alpha=0.3, edgecolors='none')
@@ -265,10 +282,10 @@ def _animate_phase_space(hist: Dict[str, Any], params: SimulationParams2D, plot_
     ax_ps_i.set_xlabel("Vzdálenost x [m]")
     ax_ps_i.set_ylabel("Dopředná rychlost $v_{x,i}$ [m/s]")
     ax_ps_i.set_xlim(0, params.L_domain)
-    ax_ps_i.axvline(x=params.x_antenna, color='black', linestyle='--', alpha=0.5)
+    for ant in params.antennas:
+        ax_ps_i.axvline(x=ant['x'], color='black', linestyle='--', alpha=0.5)
     ax_ps_i.grid(True, linestyle=':', alpha=0.5)
 
-    # Zjištění osy rychlostí
     v_e_signed_min, v_e_signed_max = 0.0, 0.0
     v_i_signed_min, v_i_signed_max = 0.0, 0.0
     for i in range(len(hist['t'])):
@@ -320,13 +337,20 @@ def _export_data_csv(results: Dict[str, Any], params: SimulationParams2D, plot_c
 
     print("  -> Exportuji makroskopická data do CSV formátu...")
     try:
-        export_matrix = np.column_stack((
-            params.time_array,
-            results['smooth_induced'],
-            results['smooth_collected'],
-            results['voltage_ant']
-        ))
-        header = "Cas_s,Indukovany_proud_A,Nasbirany_proud_A,Napeti_antena_V"
+        header_cols = ["Cas_s"]
+        cols = [params.time_array]
+
+        # Sestavení sloupců dynamicky pro každou zapojenou anténu
+        for a_idx in range(len(params.antennas)):
+            header_cols.extend([f"Indukovany_proud_Ant{a_idx + 1}_A",
+                                f"Nasbirany_proud_Ant{a_idx + 1}_A",
+                                f"Napeti_Ant{a_idx + 1}_V"])
+            cols.extend([results['smooth_induced'][a_idx],
+                         results['smooth_collected'][a_idx],
+                         results['voltage_ant'][a_idx]])
+
+        export_matrix = np.column_stack(cols)
+        header = ",".join(header_cols)
         np.savetxt(plot_cfg.file_csv, export_matrix, delimiter=",", header=header, comments="")
         print(f"  [OK] Data úspěšně uložena do: {plot_cfg.file_csv}")
     except Exception as e:

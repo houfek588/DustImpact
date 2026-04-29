@@ -4,7 +4,7 @@
 from global_const import *
 import numpy as np
 from dataclasses import dataclass, field, asdict, fields
-from typing import Tuple
+from typing import Tuple, List, Dict
 import json
 import os
 
@@ -27,8 +27,6 @@ def calc_Ew_2d(x: np.ndarray, y: np.ndarray, x_ant: float, y_ant: float, w_width
     Ewx = (x - x_ant) * factor
     Ewy = (y - y_ant) * factor
     return Ewx, Ewy
-
-
 
 
 # =============================================================================
@@ -59,11 +57,11 @@ class PlottingConfig:
     export_data_csv: bool = False
 
     # Názvy výstupních souborů
-    file_currents: str = "../outputs/out_2d_proudy_napeti.png"
-    file_fields_anim: str = "../outputs/out_2d_animace_pole_potencial.gif"
+    file_currents: str = "out_2d_proudy_napeti.png"
+    file_fields_anim: str = "out_2d_animace_pole_potencial.gif"
     file_weighting: str = "out_2d_graf_vahove_pole.png"
     file_particles_anim: str = "out_2d_animace_pozice_castic.gif"
-    file_velocity_anim: str = "../outputs/out_2d_animace_rychlosti.gif"
+    file_velocity_anim: str = "out_2d_animace_rychlosti.gif"
     file_phase_space: str = "out_2d_animace_fazovy_prostor.gif"
     file_csv: str = "out_2d_vysledky_simulace.csv"
 
@@ -71,10 +69,12 @@ class PlottingConfig:
 @dataclass
 class SimulationParams2D:
     Vf: float
-    V_ant_bias: float
+
+    # Seznam definující libovolný počet antén a jejich lokálních parametrů
+    antennas: List[Dict[str, float]] = field(default_factory=list)
 
     # Fyzikální konstanty
-    m_i_amu: float = 27.0  # Hliníkový iont (zadáno v AMU pro snazší zápis do JSONu)
+    m_i_amu: float = 27.0
     T_dust_eV: float = 2.0
     N_particles: int = 15000
 
@@ -84,15 +84,6 @@ class SimulationParams2D:
     t_delay: float = 1e-6
     L_domain: float = 5.0
     H_domain: float = 2.5
-
-    # Anténa
-    x_antenna: float = 2.5
-    y_antenna: float = 0.0
-    r_antenna: float = 0.05
-    w_width: float = 0.4
-    collection_efficiency: float = 0.80
-    C_ant: float = 2e-12
-    R_ant: float = 100e3
 
     # Mřížka (Grid)
     Nx: int = 100
@@ -118,13 +109,10 @@ class SimulationParams2D:
     save_interval: int = field(init=False)
 
     def __post_init__(self):
-        # Převod z AMU na kg
         self.m_i = self.m_i_amu * amu
-
         self.debye_length = np.sqrt((eps_0 * Te_eV * e) / (n_sw * e ** 2))
         self.v_th_e = np.sqrt(2 * e * self.T_dust_eV / m_e)
         self.v_th_i = np.sqrt(2 * e * self.T_dust_eV / self.m_i)
-
         self.q_macro = 50e-12 / self.N_particles
 
         self.steps = int(self.t_max / self.dt)
@@ -136,7 +124,6 @@ class SimulationParams2D:
         self.dy = self.y_grid[1] - self.y_grid[0]
 
         self.X_mat, self.Y_mat = np.meshgrid(self.x_grid, self.y_grid, indexing='ij')
-
         self.plot_stride = max(1, self.N_particles // 1500)
         self.save_interval = max(1, self.steps // 50)
 
@@ -147,20 +134,22 @@ class SimulationParams2D:
 
 def setup_simulation_parameters_2d(Vf: float, Vf_antenne: float, config_file: str = "config_2d.json") -> Tuple[
     SimulationParams2D, SimulationToggles2D, PlottingConfig]:
-    """
-    Načte nastavení ze souboru JSON. Pokud soubor neexistuje, automaticky ho vytvoří
-    s výchozími hodnotami, aby ho uživatel mohl následně editovat.
-    """
     if not os.path.exists(config_file):
         print(f"Konfigurační soubor '{config_file}' nenalezen. Vytvářím výchozí šablonu...")
 
-        # Extrakce pouze konfigurovatelných parametrů (init=True) a bez fixních napětí (Vf, V_ant_bias),
-        # protože ty se počítají dynamicky před startem simulace.
-        dummy_params = SimulationParams2D(Vf=0.0, V_ant_bias=0.0)
+        # Výchozí stav se DVĚMA anténami
+        default_antennas = [
+            {"x": 2.5, "y": 0.5, "r": 0.05, "V_bias": Vf_antenne, "w_width": 0.4, "collection_eff": 0.80, "C": 2e-12,
+             "R": 100e3},
+            {"x": 2.5, "y": -0.5, "r": 0.05, "V_bias": Vf_antenne, "w_width": 0.4, "collection_eff": 0.80, "C": 2e-12,
+             "R": 100e3}
+        ]
+
+        dummy_params = SimulationParams2D(Vf=0.0, antennas=default_antennas)
         params_dict = {
             f.name: getattr(dummy_params, f.name)
             for f in fields(SimulationParams2D)
-            if f.init and f.name not in ['Vf', 'V_ant_bias']
+            if f.init and f.name != 'Vf'
         }
 
         default_config = {
@@ -172,20 +161,13 @@ def setup_simulation_parameters_2d(Vf: float, Vf_antenne: float, config_file: st
         with open(config_file, 'w', encoding='utf-8') as f:
             json.dump(default_config, f, indent=4, ensure_ascii=False)
 
-    # Načtení dat z konfiguračního souboru
     with open(config_file, 'r', encoding='utf-8') as f:
         config_data = json.load(f)
 
-    # 1. Toggles
     toggles = SimulationToggles2D(**config_data.get('toggles', {}))
-
-    # 2. Params (napětí z výpočtu, zbytek ze souboru)
     params_kwargs = config_data.get('params', {})
     params_kwargs['Vf'] = Vf
-    params_kwargs['V_ant_bias'] = Vf_antenne
     params = SimulationParams2D(**params_kwargs)
-
-    # 3. Nastavení vizualizací a exportů
     plot_config = PlottingConfig(**config_data.get('plotting', {}))
 
     return params, toggles, plot_config
