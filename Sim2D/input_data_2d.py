@@ -4,7 +4,7 @@
 from global_const import *
 import numpy as np
 from dataclasses import dataclass, field, asdict, fields
-from typing import Tuple, List, Dict
+from typing import Tuple, List, Dict, Any
 import json
 import os
 
@@ -56,14 +56,17 @@ class PlottingConfig:
     save_plots: bool = False
     export_data_csv: bool = False
 
-    # Názvy výstupních souborů
+    # Názvy výstupních datových souborů
+    file_results_npz: str = "out_2d_vysledky.npz"
+    file_csv: str = "out_2d_vysledky_simulace.csv"
+
+    # Názvy výstupních grafů
     file_currents: str = "out_2d_proudy_napeti.png"
     file_fields_anim: str = "out_2d_animace_pole_potencial.gif"
     file_weighting: str = "out_2d_graf_vahove_pole.png"
     file_particles_anim: str = "out_2d_animace_pozice_castic.gif"
     file_velocity_anim: str = "out_2d_animace_rychlosti.gif"
     file_phase_space: str = "out_2d_animace_fazovy_prostor.gif"
-    file_csv: str = "out_2d_vysledky_simulace.csv"
 
 
 @dataclass
@@ -84,6 +87,7 @@ class SimulationParams2D:
     t_delay: float = 1e-6
     L_domain: float = 5.0
     H_domain: float = 2.5
+    y_impact: float = 0.0
 
     # Mřížka (Grid)
     Nx: int = 100
@@ -129,7 +133,7 @@ class SimulationParams2D:
 
 
 # =============================================================================
-# MANAŽER KONFIGURAČNÍHO SOUBORU
+# MANAŽER KONFIGURAČNÍHO SOUBORU A DATOVÝ WORFKLOW
 # =============================================================================
 
 def setup_simulation_parameters_2d(Vf: float, Vf_antenne: float, config_file: str = "config_2d.json") -> Tuple[
@@ -171,3 +175,63 @@ def setup_simulation_parameters_2d(Vf: float, Vf_antenne: float, config_file: st
     plot_config = PlottingConfig(**config_data.get('plotting', {}))
 
     return params, toggles, plot_config
+
+
+def save_results_npz(results: Dict[str, Any], filepath: str) -> None:
+    """
+    Uloží kompletní výsledky (včetně makroskopických polí a historie částic)
+    do jediného efektivně zkomprimovaného .npz archivu.
+    """
+    print(f"Ukládám výsledky do souboru: {filepath} ...")
+
+    # Převod vnitřních seznamů na výkonná vícerozměrná Numpy pole pro extra rychlý zápis
+    np.savez_compressed(
+        filepath,
+        smooth_induced=np.array(results['smooth_induced']),
+        smooth_collected=np.array(results['smooth_collected']),
+        smooth_total=np.array(results['smooth_total']),
+        voltage_ant=np.array(results['voltage_ant']),
+        hist_V=np.array(results['history']['V']),
+        hist_rho=np.array(results['history']['rho']),
+        hist_t=np.array(results['history']['t']),
+        hist_x_e=np.array(results['history']['x_e']),
+        hist_y_e=np.array(results['history']['y_e']),
+        hist_x_i=np.array(results['history']['x_i']),
+        hist_y_i=np.array(results['history']['y_i']),
+        hist_vx_e=np.array(results['history']['vx_e']),
+        hist_vy_e=np.array(results['history']['vy_e']),
+        hist_vx_i=np.array(results['history']['vx_i']),
+        hist_vy_i=np.array(results['history']['vy_i'])
+    )
+    print("  [OK] Data úspěšně uložena do binárního archivu.")
+
+
+def load_results_npz(filepath: str) -> Dict[str, Any]:
+    """
+    Načte zazipovaný soubor .npz z disku zpět do struktury slovníku
+    stejné formy, jako produkuje přímo výpočetní jádro.
+    """
+    print(f"Načítám výsledky ze souboru: {filepath} ...")
+
+    with np.load(filepath, allow_pickle=True) as data:
+        results = {
+            'smooth_induced': data['smooth_induced'],
+            'smooth_collected': data['smooth_collected'],
+            'smooth_total': data['smooth_total'],
+            'voltage_ant': data['voltage_ant'],
+            'history': {
+                'V': data['hist_V'],
+                'rho': data['hist_rho'],
+                't': data['hist_t'],
+                'x_e': data['hist_x_e'],
+                'y_e': data['hist_y_e'],
+                'x_i': data['hist_x_i'],
+                'y_i': data['hist_y_i'],
+                'vx_e': data['hist_vx_e'],
+                'vy_e': data['hist_vy_e'],
+                'vx_i': data['hist_vx_i'],
+                'vy_i': data['hist_vy_i']
+            }
+        }
+    print("  [OK] Data úspěšně načtena do operační paměti.")
+    return results

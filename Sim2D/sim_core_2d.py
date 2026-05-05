@@ -32,9 +32,9 @@ class DustImpactSimulation2D:
         self.vy_i = np.random.normal(0, self.p.v_th_i, self.p.N_particles)
 
         self.x_e = np.zeros(self.p.N_particles)
-        self.y_e = np.zeros(self.p.N_particles)
+        self.y_e = np.full(self.p.N_particles, self.p.y_impact)
         self.x_i = np.zeros(self.p.N_particles)
-        self.y_i = np.zeros(self.p.N_particles)
+        self.y_i = np.full(self.p.N_particles, self.p.y_impact)
 
         self.active_e = np.zeros(self.p.N_particles, dtype=bool)
         self.active_i = np.zeros(self.p.N_particles, dtype=bool)

@@ -171,6 +171,7 @@ def _animate_2d_particles(hist: Dict[str, Any], params: SimulationParams2D, plot
     scat_i = ax_pos.scatter([], [], s=2, color='blue', alpha=0.3, label='Ionty')
 
     ax_pos.axvline(x=0, ymin=0.3, ymax=0.7, color='grey', lw=4, alpha=0.5, label='Povrch sondy')
+    ax_pos.scatter([0], [params.y_impact], color='orange', marker='*', s=200, label='Místo dopadu', zorder=5)
 
     for a_idx, ant in enumerate(params.antennas):
         circle = plt.Circle((ant['x'], ant['y']), ant['r'], color='black', fill=False, ls='--', lw=2)
@@ -239,11 +240,11 @@ def _animate_velocity_distribution(hist: Dict[str, Any], plot_cfg: PlottingConfi
 
         max_y = 10
         if len(v_mag_e) > 1:
-            ce, be = np.histogram(v_mag_e, bins=500, range=(v_mag_min, v_mag_max + pad))
+            ce, be = np.histogram(v_mag_e, bins=200, range=(v_mag_min, v_mag_max + pad))
             line_ve.set_data((be[:-1] + be[1:]) / 2, ce)
             max_y = max(max_y, ce.max())
         if len(v_mag_i) > 1:
-            ci, bi = np.histogram(v_mag_i, bins=500, range=(v_mag_min, v_mag_max + pad))
+            ci, bi = np.histogram(v_mag_i, bins=200, range=(v_mag_min, v_mag_max + pad))
             line_vi.set_data((bi[:-1] + bi[1:]) / 2, ci)
             max_y = max(max_y, ci.max())
 
