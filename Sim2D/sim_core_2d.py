@@ -12,7 +12,7 @@ import scipy.sparse as sp
 import scipy.sparse.linalg as spla
 from typing import Tuple, Dict, Any
 
-from input_data_2d import calc_Ew_2d, SimulationParams2D, SimulationToggles2D
+from input_data_2d import calc_Ew_2d, _dist_to_segment_sq, SimulationParams2D, SimulationToggles2D
 from input_data_2d import e, m_e, eps_0
 
 
@@ -63,8 +63,8 @@ class DustImpactSimulation2D:
         self.ant_masks = []
         self.combined_ant_mask = np.zeros((self.p.Nx, self.p.Ny), dtype=bool)
         for ant in self.p.antennas:
-            r_sq = (self.p.X_mat - ant['x']) ** 2 + (self.p.Y_mat - ant['y']) ** 2
-            mask = r_sq <= ant['r'] ** 2
+            d_sq, _, _ = _dist_to_segment_sq(self.p.X_mat, self.p.Y_mat, ant['x1'], ant['y1'], ant['x2'], ant['y2'])
+            mask = d_sq <= ant['r'] ** 2
             self.ant_masks.append(mask)
             self.combined_ant_mask |= mask
 
@@ -242,8 +242,8 @@ class DustImpactSimulation2D:
             x_act = x[new_active]
             y_act = y[new_active]
 
-            r_sq = (x_act - ant['x']) ** 2 + (y_act - ant['y']) ** 2
-            is_outside = r_sq > ant['r'] ** 2
+            d_sq, _, _ = _dist_to_segment_sq(x_act, y_act, ant['x1'], ant['y1'], ant['x2'], ant['y2'])
+            is_outside = d_sq > ant['r'] ** 2
 
             was_out_act = was_outside[a_idx, new_active]
             crossed_ant = ~is_outside & was_out_act
@@ -262,7 +262,8 @@ class DustImpactSimulation2D:
                 new_active[absorbed_global_indices] = False
 
             if np.any(new_active):
-                Ewx, Ewy = calc_Ew_2d(x[new_active], y[new_active], ant['x'], ant['y'], ant['w_width'])
+                Ewx, Ewy = calc_Ew_2d(x[new_active], y[new_active], ant['x1'], ant['y1'], ant['x2'], ant['y2'],
+                                      ant['w_width'])
                 v_dot_Ew = vx[new_active] * Ewx + vy[new_active] * Ewy
                 ind_currs[a_idx] = -np.sum(macro_charge * v_dot_Ew)
 

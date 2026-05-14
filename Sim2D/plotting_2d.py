@@ -100,13 +100,11 @@ def _animate_2d_fields(hist: Dict[str, Any], params: SimulationParams2D, plot_cf
 
     # Vykreslení všech antén
     for a_idx, ant in enumerate(params.antennas):
-        circle_V = plt.Circle((ant['x'], ant['y']), ant['r'], color='white', fill=False, ls='--')
-        circle_rho = plt.Circle((ant['x'], ant['y']), ant['r'], color='black', fill=False, ls='--')
-        ax_V.add_patch(circle_V)
-        ax_rho.add_patch(circle_rho)
+        ax_V.plot([ant['x1'], ant['x2']], [ant['y1'], ant['y2']], color='white', lw=2, ls='--')
+        ax_rho.plot([ant['x1'], ant['x2']], [ant['y1'], ant['y2']], color='black', lw=2, ls='--')
         # Přidat textovou popisku k první anténě, aby to nedělalo duplicity v legendě
         if a_idx == 0:
-            circle_rho.set_label('Antény')
+            ax_rho.plot([], [], color='black', lw=2, ls='--', label='Drátové antény')
 
     time_text = ax_V.text(0.02, 0.90, '', transform=ax_V.transAxes, color='white', weight='bold')
 
@@ -136,15 +134,19 @@ def _plot_weighting_field(params: SimulationParams2D, plot_cfg: PlottingConfig) 
 
     for a_idx, ant in enumerate(params.antennas):
         c = colors[a_idx % len(colors)]
-        y_slice = np.full_like(params.x_grid, ant['y'])
 
-        Vw_1d = calc_Vw_2d(params.x_grid, y_slice, ant['x'], ant['y'], ant['w_width'])
+        # Slices pro graf (bereme řez středem úsečky)
+        y_mid = (ant['y1'] + ant['y2']) / 2.0
+        y_slice = np.full_like(params.x_grid, y_mid)
+
+        Vw_1d = calc_Vw_2d(params.x_grid, y_slice, ant['x1'], ant['y1'], ant['x2'], ant['y2'], ant['w_width'])
         ax4.plot(params.x_grid, Vw_1d, color=c, lw=2, linestyle='--', label=f'$V_w$ (Anténa {a_idx + 1})')
 
-        Ewx, _ = calc_Ew_2d(params.x_grid, y_slice, ant['x'], ant['y'], ant['w_width'])
+        Ewx, _ = calc_Ew_2d(params.x_grid, y_slice, ant['x1'], ant['y1'], ant['x2'], ant['y2'], ant['w_width'])
         ax4.plot(params.x_grid, Ewx, color=c, lw=2, label=f'$E_{{w,x}}$ (Anténa {a_idx + 1})')
 
-        ax4.axvline(x=ant['x'], color=c, linestyle='-', alpha=0.3, lw=2)
+        x_mid = (ant['x1'] + ant['x2']) / 2.0
+        ax4.axvline(x=x_mid, color=c, linestyle='-', alpha=0.3, lw=2)
 
     ax4.axhline(y=0, color='black', lw=1, alpha=0.5)
     ax4.set_title("1D řezy váhovou funkcí pro všechny zapojené antény")
@@ -174,8 +176,8 @@ def _animate_2d_particles(hist: Dict[str, Any], params: SimulationParams2D, plot
     ax_pos.scatter([0], [params.y_impact], color='orange', marker='*', s=200, label='Místo dopadu', zorder=5)
 
     for a_idx, ant in enumerate(params.antennas):
-        circle = plt.Circle((ant['x'], ant['y']), ant['r'], color='black', fill=False, ls='--', lw=2)
-        ax_pos.add_patch(circle)
+        lbl = 'Detekční Anténa' if a_idx == 0 else ""
+        ax_pos.plot([ant['x1'], ant['x2']], [ant['y1'], ant['y2']], color='black', lw=2, ls='--', label=lbl)
 
     ax_pos.set_xlim(0, params.L_domain)
     ax_pos.set_ylim(-params.H_domain, params.H_domain)
@@ -275,7 +277,11 @@ def _animate_phase_space(hist: Dict[str, Any], params: SimulationParams2D, plot_
     ax_ps_e.set_ylabel("Dopředná rychlost $v_{x,e}$ [m/s]")
     ax_ps_e.set_xlim(0, params.L_domain)
     for ant in params.antennas:
-        ax_ps_e.axvline(x=ant['x'], color='black', linestyle='--', alpha=0.5)
+        x_min, x_max = min(ant['x1'], ant['x2']), max(ant['x1'], ant['x2'])
+        if x_min == x_max:
+            ax_ps_e.axvline(x=x_min, color='black', linestyle='--', alpha=0.5)
+        else:
+            ax_ps_e.axvspan(x_min, x_max, color='black', alpha=0.1)
     ax_ps_e.grid(True, linestyle=':', alpha=0.5)
 
     scat_ps_i = ax_ps_i.scatter([], [], s=1, color='blue', alpha=0.3, edgecolors='none')
@@ -284,7 +290,11 @@ def _animate_phase_space(hist: Dict[str, Any], params: SimulationParams2D, plot_
     ax_ps_i.set_ylabel("Dopředná rychlost $v_{x,i}$ [m/s]")
     ax_ps_i.set_xlim(0, params.L_domain)
     for ant in params.antennas:
-        ax_ps_i.axvline(x=ant['x'], color='black', linestyle='--', alpha=0.5)
+        x_min, x_max = min(ant['x1'], ant['x2']), max(ant['x1'], ant['x2'])
+        if x_min == x_max:
+            ax_ps_i.axvline(x=x_min, color='black', linestyle='--', alpha=0.5)
+        else:
+            ax_ps_i.axvspan(x_min, x_max, color='black', alpha=0.1)
     ax_ps_i.grid(True, linestyle=':', alpha=0.5)
 
     v_e_signed_min, v_e_signed_max = 0.0, 0.0

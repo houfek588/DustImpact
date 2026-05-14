@@ -13,19 +13,45 @@ import os
 # POMOCNÉ FUNKCE PRO VÁHOVÉ POLE (2D)
 # =============================================================================
 
-def calc_Vw_2d(x: np.ndarray, y: np.ndarray, x_ant: float, y_ant: float, w_width: float) -> np.ndarray:
-    """ 2D Gaussovský váhový potenciál centrovaný na pozici antény """
-    r_sq = (x - x_ant) ** 2 + (y - y_ant) ** 2
+def _dist_to_segment_sq(x: np.ndarray, y: np.ndarray, x1: float, y1: float, x2: float, y2: float) -> Tuple[
+    np.ndarray, np.ndarray, np.ndarray]:
+    """ Vypočítá kvadrát nejkratší vzdálenosti od bodů (x,y) k úsečce (x1,y1)-(x2,y2). """
+    px = x - x1
+    py = y - y1
+    vx = x2 - x1
+    vy = y2 - y1
+
+    v_sq = vx ** 2 + vy ** 2
+    if v_sq == 0:  # Úsečka je jen jeden bod
+        return px ** 2 + py ** 2, np.full_like(x, x1), np.full_like(y, y1)
+
+    # Projekce bodu na přímku tvořenou úsečkou
+    t = (px * vx + py * vy) / v_sq
+    t = np.clip(t, 0.0, 1.0)  # Omezení pouze na úsečku (ne na nekonečnou přímku)
+
+    # Nejbližší bod na úsečce
+    cx = x1 + t * vx
+    cy = y1 + t * vy
+
+    dx = x - cx
+    dy = y - cy
+
+    return dx ** 2 + dy ** 2, cx, cy
+
+
+def calc_Vw_2d(x: np.ndarray, y: np.ndarray, x1: float, y1: float, x2: float, y2: float, w_width: float) -> np.ndarray:
+    """ 2D Gaussovský váhový potenciál centrovaný na drátovou anténu """
+    r_sq, _, _ = _dist_to_segment_sq(x, y, x1, y1, x2, y2)
     return np.exp(-r_sq / (w_width ** 2))
 
 
-def calc_Ew_2d(x: np.ndarray, y: np.ndarray, x_ant: float, y_ant: float, w_width: float) -> Tuple[
+def calc_Ew_2d(x: np.ndarray, y: np.ndarray, x1: float, y1: float, x2: float, y2: float, w_width: float) -> Tuple[
     np.ndarray, np.ndarray]:
-    """ 2D Váhové pole jako záporný gradient Vw(x, y) """
-    r_sq = (x - x_ant) ** 2 + (y - y_ant) ** 2
+    """ 2D Váhové pole jako záporný gradient Vw(x, y) vůči drátové anténě """
+    r_sq, cx, cy = _dist_to_segment_sq(x, y, x1, y1, x2, y2)
     factor = (2.0 / w_width ** 2) * np.exp(-r_sq / (w_width ** 2))
-    Ewx = (x - x_ant) * factor
-    Ewy = (y - y_ant) * factor
+    Ewx = (x - cx) * factor
+    Ewy = (y - cy) * factor
     return Ewx, Ewy
 
 
@@ -141,12 +167,12 @@ def setup_simulation_parameters_2d(Vf: float, Vf_antenne: float, config_file: st
     if not os.path.exists(config_file):
         print(f"Konfigurační soubor '{config_file}' nenalezen. Vytvářím výchozí šablonu...")
 
-        # Výchozí stav se DVĚMA anténami
+        # Výchozí stav se DVĚMA drátovými anténami
         default_antennas = [
-            {"x": 2.5, "y": 0.5, "r": 0.05, "V_bias": Vf_antenne, "w_width": 0.4, "collection_eff": 0.80, "C": 2e-12,
-             "R": 100e3},
-            {"x": 2.5, "y": -0.5, "r": 0.05, "V_bias": Vf_antenne, "w_width": 0.4, "collection_eff": 0.80, "C": 2e-12,
-             "R": 100e3}
+            {"x1": 2.5, "y1": 0.2, "x2": 2.5, "y2": 1.2, "r": 0.05, "V_bias": Vf_antenne, "w_width": 0.4,
+             "collection_eff": 0.80, "C": 2e-12, "R": 100e3},
+            {"x1": 2.5, "y1": -0.2, "x2": 2.5, "y2": -1.2, "r": 0.05, "V_bias": Vf_antenne, "w_width": 0.4,
+             "collection_eff": 0.80, "C": 2e-12, "R": 100e3}
         ]
 
         dummy_params = SimulationParams2D(Vf=0.0, antennas=default_antennas)
