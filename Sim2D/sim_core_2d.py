@@ -44,7 +44,12 @@ class DustImpactSimulation2D:
         self.col_curr_e = np.zeros((self.num_antennas, self.p.steps))
         self.col_curr_i = np.zeros((self.num_antennas, self.p.steps))
         self.tot_curr = np.zeros((self.num_antennas, self.p.steps))
+
+        # INICIALIZACE NAPĚTÍ: Antény musí startovat nabité na svůj V_bias
         self.voltage_ant = np.zeros((self.num_antennas, self.p.steps))
+        for a_idx, ant in enumerate(self.p.antennas):
+            if self.toggles.enable_antenna_bias:
+                self.voltage_ant[a_idx, 0] = ant.get('V_bias', 0.0)
 
         self.V_self_grid = np.zeros((self.p.Nx, self.p.Ny))
         self.rho_grid = np.zeros((self.p.Nx, self.p.Ny))
@@ -89,7 +94,6 @@ class DustImpactSimulation2D:
                     A_bg[idx, idx] = 1.0
                     A_self[idx, idx] = 1.0
                 else:
-                    # Dynamické rozhodnutí Laplace vs Poisson-Boltzmann
                     diag_val = -2 / dx2 - 2 / dy2
                     if self.toggles.enable_plasma_background:
                         diag_val -= (1.0 / self.p.debye_length ** 2)
@@ -112,8 +116,6 @@ class DustImpactSimulation2D:
     def _compute_background_field(self):
         b_bg = np.zeros(self.p.Nx * self.p.Ny)
 
-        # Okrajové podmínky pole pozadí (Sonda zabírá pouze definovanou část osy y)
-        # Poloměr sondy se načítá z parametrů, výchozí hodnota je 40 % rozpětí domény
         sonda_polomer = getattr(self.p, 'spacecraft_radius', self.p.H_domain * 0.4)
         for j in range(self.p.Ny):
             if np.abs(self.p.y_grid[j]) <= sonda_polomer:
@@ -287,7 +289,9 @@ class DustImpactSimulation2D:
                 self.ind_curr_e[:, step] = ie
                 self.ind_curr_i[:, step] = ii
 
-            # Paraleně zpracování napětí pro všechny detektory
+            # -------------------------------------------------------------
+            # ŘEŠENÍ RC OBVODU SE ZDROJEM V_BIAS
+            # -------------------------------------------------------------
             for a_idx, ant in enumerate(self.p.antennas):
                 I_tot = self.ind_curr_e[a_idx, step] + self.ind_curr_i[a_idx, step] + self.col_curr_e[a_idx, step] + \
                         self.col_curr_i[a_idx, step]
@@ -296,7 +300,11 @@ class DustImpactSimulation2D:
                 if step > 0:
                     dV_dt = I_tot / ant['C']
                     if self.toggles.enable_rc_circuit:
-                        dV_dt -= self.voltage_ant[a_idx, step - 1] / (ant['R'] * ant['C'])
+                        # Identifikace biasu. Pokud je vypnutý celkově, V_bias = 0
+                        v_bias = ant.get('V_bias', 0.0) if self.toggles.enable_antenna_bias else 0.0
+                        # Přidání úbytku napětí na vybíjecím odporu vůči zdroji
+                        dV_dt -= (self.voltage_ant[a_idx, step - 1] - v_bias) / (ant['R'] * ant['C'])
+
                     self.voltage_ant[a_idx, step] = self.voltage_ant[a_idx, step - 1] + dV_dt * self.p.dt
 
             if step % self.p.save_interval == 0 or step == self.p.steps - 1:
