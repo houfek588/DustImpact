@@ -10,7 +10,7 @@ import os
 
 
 # =============================================================================
-# POMOCNÉ FUNKCE PRO VÁHOVÉ POLE (2D)
+# POMOCNÉ FUNKCE PRO VÁHOVÉ POLE A GEOMETRII (2D)
 # =============================================================================
 
 def _dist_to_segment_sq(x: np.ndarray, y: np.ndarray, x1: float, y1: float, x2: float, y2: float) -> Tuple[
@@ -22,14 +22,12 @@ def _dist_to_segment_sq(x: np.ndarray, y: np.ndarray, x1: float, y1: float, x2: 
     vy = y2 - y1
 
     v_sq = vx ** 2 + vy ** 2
-    if v_sq == 0:  # Úsečka je jen jeden bod
+    if v_sq == 0:
         return px ** 2 + py ** 2, np.full_like(x, x1), np.full_like(y, y1)
 
-    # Projekce bodu na přímku tvořenou úsečkou
     t = (px * vx + py * vy) / v_sq
-    t = np.clip(t, 0.0, 1.0)  # Omezení pouze na úsečku (ne na nekonečnou přímku)
+    t = np.clip(t, 0.0, 1.0)
 
-    # Nejbližší bod na úsečce
     cx = x1 + t * vx
     cy = y1 + t * vy
 
@@ -62,6 +60,7 @@ def calc_Ew_2d(x: np.ndarray, y: np.ndarray, x1: float, y1: float, x2: float, y2
 @dataclass
 class SimulationToggles2D:
     enable_background_field: bool = True
+    enable_plasma_background: bool = True  # PŘEPÍNAČ: True = Debyeovo stínění, False = Čisté vakuum
     enable_self_field: bool = True
     enable_antenna_bias: bool = True
     enable_antenna_collection: bool = True
@@ -70,7 +69,6 @@ class SimulationToggles2D:
 
 @dataclass
 class PlottingConfig:
-    # Přepínače, které grafy/animace vůbec generovat a zobrazit
     show_currents: bool = True
     show_fields_anim: bool = True
     show_weighting_field: bool = True
@@ -78,15 +76,11 @@ class PlottingConfig:
     show_velocity_anim: bool = True
     show_phase_space_anim: bool = False
 
-    # Přepínače uložení na disk
     save_plots: bool = False
     export_data_csv: bool = False
 
-    # Názvy výstupních datových souborů
     file_results_npz: str = "out_2d_vysledky.npz"
     file_csv: str = "out_2d_vysledky_simulace.csv"
-
-    # Názvy výstupních grafů
     file_currents: str = "out_2d_proudy_napeti.png"
     file_fields_anim: str = "out_2d_animace_pole_potencial.gif"
     file_weighting: str = "out_2d_graf_vahove_pole.png"
@@ -98,30 +92,26 @@ class PlottingConfig:
 @dataclass
 class SimulationParams2D:
     Vf: float
-
-    # Seznam definující libovolný počet antén a jejich lokálních parametrů
     antennas: List[Dict[str, float]] = field(default_factory=list)
 
-    # Fyzikální konstanty
     m_i_amu: float = 27.0
     T_dust_eV: float = 2.0
     N_particles: int = 15000
 
-    # Čas a prostor
     dt: float = 1e-9
     t_max: float = 20e-6
     t_delay: float = 1e-6
     L_domain: float = 5.0
     H_domain: float = 2.5
+    spacecraft_radius: float = 1.0
     y_impact: float = 0.0
 
-    # Mřížka (Grid)
     Nx: int = 100
     Ny: int = 100
     A_sim: float = 1.0
     integrator: str = 'leapfrog'
 
-    # ================== Interní kalkulované proměnné ==================
+    # Interní kalkulované proměnné
     m_i: float = field(init=False)
     debye_length: float = field(init=False)
     v_th_e: float = field(init=False)
@@ -167,7 +157,6 @@ def setup_simulation_parameters_2d(Vf: float, Vf_antenne: float, config_file: st
     if not os.path.exists(config_file):
         print(f"Konfigurační soubor '{config_file}' nenalezen. Vytvářím výchozí šablonu...")
 
-        # Výchozí stav se DVĚMA drátovými anténami
         default_antennas = [
             {"x1": 2.5, "y1": 0.2, "x2": 2.5, "y2": 1.2, "r": 0.05, "V_bias": Vf_antenne, "w_width": 0.4,
              "collection_eff": 0.80, "C": 2e-12, "R": 100e3},
@@ -204,13 +193,7 @@ def setup_simulation_parameters_2d(Vf: float, Vf_antenne: float, config_file: st
 
 
 def save_results_npz(results: Dict[str, Any], filepath: str) -> None:
-    """
-    Uloží kompletní výsledky (včetně makroskopických polí a historie částic)
-    do jediného efektivně zkomprimovaného .npz archivu.
-    """
     print(f"Ukládám výsledky do souboru: {filepath} ...")
-
-    # Převod vnitřních seznamů na výkonná vícerozměrná Numpy pole pro extra rychlý zápis
     np.savez_compressed(
         filepath,
         smooth_induced=np.array(results['smooth_induced']),
@@ -233,12 +216,7 @@ def save_results_npz(results: Dict[str, Any], filepath: str) -> None:
 
 
 def load_results_npz(filepath: str) -> Dict[str, Any]:
-    """
-    Načte zazipovaný soubor .npz z disku zpět do struktury slovníku
-    stejné formy, jako produkuje přímo výpočetní jádro.
-    """
     print(f"Načítám výsledky ze souboru: {filepath} ...")
-
     with np.load(filepath, allow_pickle=True) as data:
         results = {
             'smooth_induced': data['smooth_induced'],
