@@ -45,11 +45,12 @@ class DustImpactSimulation2D:
         self.col_curr_i = np.zeros((self.num_antennas, self.p.steps))
         self.tot_curr = np.zeros((self.num_antennas, self.p.steps))
 
-        # INICIALIZACE NAPĚTÍ: Antény musí startovat nabité na svůj V_bias
+        # INICIALIZACE NAPĚTÍ: Antény startují nabité na svůj rovnovážný plovoucí potenciál
+        # (nabíjení způsobené slunečním větrem a fotoemisí, nikoliv umělým zdrojem).
         self.voltage_ant = np.zeros((self.num_antennas, self.p.steps))
         for a_idx, ant in enumerate(self.p.antennas):
             if self.toggles.enable_antenna_bias:
-                self.voltage_ant[a_idx, 0] = ant.get('V_bias', 0.0)
+                self.voltage_ant[a_idx, 0] = ant.get('V_eq', ant.get('V_bias', 0.0))
 
         self.V_self_grid = np.zeros((self.p.Nx, self.p.Ny))
         self.rho_grid = np.zeros((self.p.Nx, self.p.Ny))
@@ -63,9 +64,9 @@ class DustImpactSimulation2D:
             self.ant_masks.append(mask)
             self.combined_ant_mask |= mask
 
-        # Sestavení řídkých matic pro řešič a předvýpočet pole pozadí
+        # Sestavení řídkých matic pro řešič a inicializace pole pozadí
         self._build_poisson_solver()
-        self._compute_background_field()
+        self._update_background_field(0)
 
         self.history = {'V': [], 'rho': [], 't': [],
                         'x_e': [], 'y_e': [], 'x_i': [], 'y_i': [],
@@ -113,7 +114,7 @@ class DustImpactSimulation2D:
         self.solver_bg = spla.factorized(A_bg.tocsc())
         self.solver_self = spla.factorized(A_self.tocsc())
 
-    def _compute_background_field(self):
+    def _update_background_field(self, step: int = 0):
         b_bg = np.zeros(self.p.Nx * self.p.Ny)
 
         sonda_polomer = getattr(self.p, 'spacecraft_radius', self.p.H_domain * 0.4)
@@ -124,11 +125,14 @@ class DustImpactSimulation2D:
                 b_bg[self._get_1d_idx(0, j)] = 0.0
 
         for a_idx, ant in enumerate(self.p.antennas):
+            # Získáme napětí z předchozího kroku (nebo výchozí nabití v kroku 0)
+            current_voltage = self.voltage_ant[a_idx, max(0, step - 1)] if step > 0 else self.voltage_ant[a_idx, 0]
+
             for i in range(self.p.Nx):
                 for j in range(self.p.Ny):
                     if self.ant_masks[a_idx][i, j]:
                         if self.toggles.enable_antenna_bias:
-                            b_bg[self._get_1d_idx(i, j)] = ant['V_bias']
+                            b_bg[self._get_1d_idx(i, j)] = current_voltage
                         else:
                             b_bg[self._get_1d_idx(i, j)] = 0.0
 
@@ -277,6 +281,10 @@ class DustImpactSimulation2D:
                 self.was_outside_i[:] = False
                 self.cloud_injected = True
 
+            # AKTUALIZACE POZADÍ (Dynamické napětí antén ovlivňuje přilétající částice)
+            if step > 0:
+                self._update_background_field(step)
+
             self._solve_poisson_equation()
 
             if self.cloud_injected:
@@ -290,7 +298,7 @@ class DustImpactSimulation2D:
                 self.ind_curr_i[:, step] = ii
 
             # -------------------------------------------------------------
-            # ŘEŠENÍ RC OBVODU SE ZDROJEM V_BIAS
+            # ŘEŠENÍ RC OBVODU (RELAXACE K PLOVOUCÍMU POTENCIÁLU)
             # -------------------------------------------------------------
             for a_idx, ant in enumerate(self.p.antennas):
                 I_tot = self.ind_curr_e[a_idx, step] + self.ind_curr_i[a_idx, step] + self.col_curr_e[a_idx, step] + \
@@ -300,10 +308,12 @@ class DustImpactSimulation2D:
                 if step > 0:
                     dV_dt = I_tot / ant['C']
                     if self.toggles.enable_rc_circuit:
-                        # Identifikace biasu. Pokud je vypnutý celkově, V_bias = 0
-                        v_bias = ant.get('V_bias', 0.0) if self.toggles.enable_antenna_bias else 0.0
-                        # Přidání úbytku napětí na vybíjecím odporu vůči zdroji
-                        dV_dt -= (self.voltage_ant[a_idx, step - 1] - v_bias) / (ant['R'] * ant['C'])
+                        # Plovoucí potenciál daný plazmatem na pozadí
+                        v_eq = ant.get('V_eq', ant.get('V_bias', 0.0)) if self.toggles.enable_antenna_bias else 0.0
+
+                        # Zde 'R' reprezentuje efektivní dynamický odpor plazmatického pouzdra
+                        # (Theveninův ekvivalent R = dV/dI okolního plazmatu a fotoemise).
+                        dV_dt -= (self.voltage_ant[a_idx, step - 1] - v_eq) / (ant['R'] * ant['C'])
 
                     self.voltage_ant[a_idx, step] = self.voltage_ant[a_idx, step - 1] + dV_dt * self.p.dt
 

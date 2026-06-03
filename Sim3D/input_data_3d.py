@@ -14,10 +14,6 @@ e = 1.602176634e-19  # C
 m_e = 9.1093837015e-31  # kg
 eps_0 = 8.8541878128e-12  # F/m
 
-# Parametry solárního větru pro výpočet Debyeovy délky
-Te_eV = 15.0
-n_sw = 1e7
-
 
 @dataclass
 class SimulationToggles3D:
@@ -39,6 +35,8 @@ class VTKFilesConfig:
 
 @dataclass
 class PlottingConfig3D:
+    run_simulation: bool = True
+    visualize_results: bool = True
     show_currents: bool = True
     show_fields_slice: bool = True
     show_particles_3d: bool = True
@@ -46,7 +44,7 @@ class PlottingConfig3D:
     show_phase_space_anim: bool = False
     save_plots: bool = False
     export_data_csv: bool = False
-    file_results_npz: str = "out_3d_vysledky.npz"
+    file_results_npz: str = "../outputs/out_3d_vysledky.npz"
     file_csv: str = "out_3d_vysledky_simulace.csv"
     file_currents: str = "out_3d_proudy_napeti.png"
     file_fields_anim: str = "out_3d_animace_pole_potencial.gif"
@@ -74,15 +72,20 @@ class SimulationParams3D:
     L_z: float = 5.0
 
     # Výchozí pozice dopadu (Změněno na 0,0,0 pro centrovanou sondu)
-    impact_pos: List[float] = field(default_factory=lambda: [0.0, 0.0, 0.0])
+    impact_pos: List[float] = field(default_factory=lambda: [-2.0, 2.0, 0.0])
 
     # 3D Mřížka: 35x35x35 = 42 875 uzlů (rozumný kompromis paměti a rychlosti)
     Nx: int = 35
     Ny: int = 35
     Nz: int = 35
 
+    # Parametry prostředí (solární vítr)
+    Te_sw_eV: float = 15.0
+    n_sw: float = 1e7
+
     C_ant: List[float] = field(default_factory=lambda: [2e-12, 2e-12, 2e-12])
     R_ant: List[float] = field(default_factory=lambda: [100e3, 100e3, 100e3])
+    V_bias: List[float] = field(default_factory=lambda: [0.0, 0.0, 0.0])
     collection_eff: List[float] = field(default_factory=lambda: [0.8, 0.8, 0.8])
 
     # Interní proměnné
@@ -102,7 +105,7 @@ class SimulationParams3D:
 
     def __post_init__(self):
         self.m_i = self.m_i_amu * amu
-        self.debye_length = np.sqrt((eps_0 * Te_eV * e) / (n_sw * e ** 2))
+        self.debye_length = np.sqrt((eps_0 * self.Te_sw_eV * e) / (self.n_sw * e ** 2))
         self.q_macro = 50e-12 / self.N_particles
         self.steps = int(self.t_max / self.dt)
         self.time_array = np.linspace(0, self.t_max, self.steps)
@@ -120,7 +123,7 @@ class SimulationParams3D:
         self.save_interval = max(1, self.steps // 50)
 
 
-def setup_simulation_parameters_3d(Vf: float, config_file: str = "config_3d.json") -> Tuple[
+def setup_simulation_parameters_3d(Vf: float, Vf_antenne: float = 0.0, config_file: str = "config_3d.json") -> Tuple[
     SimulationParams3D, SimulationToggles3D, PlottingConfig3D]:
     """ Načte nebo vytvoří JSON konfiguraci pro 3D. """
     if not os.path.exists(config_file):
@@ -129,6 +132,7 @@ def setup_simulation_parameters_3d(Vf: float, config_file: str = "config_3d.json
         params_dict = {f.name: getattr(dummy_params, f.name) for f in fields(SimulationParams3D) if
                        f.init and f.name != 'Vf'}
         params_dict['vtk_files'] = asdict(dummy_params.vtk_files)
+        params_dict['V_bias'] = [Vf_antenne] * 3
 
         default_config = {
             "toggles": asdict(SimulationToggles3D()),
@@ -191,7 +195,7 @@ def load_and_interpolate_vtk(params: SimulationParams3D):
         sampled_bg = pic_grid.sample(mesh_bg)
         pot_data = _extract_potential_from_mesh(sampled_bg, params.vtk_files.background_potential)
         V_bg_grid = pot_data.reshape((Nx, Ny, Nz))
-        print(f"  -> Pozadí načteno a voxelizováno.")
+        print(f"  -> Pozadí načteno. Rozsah potenciálu: {np.nanmin(V_bg_grid):.2f} až {np.nanmax(V_bg_grid):.2f} V")
     except FileNotFoundError:
         print("  -> Upozornění: VTK pozadí nenalezeno. Vytvářím syntetické analytické pole...")
         V_bg_grid = np.zeros((Nx, Ny, Nz))
@@ -204,9 +208,14 @@ def load_and_interpolate_vtk(params: SimulationParams3D):
 
     # NOVÉ: VYTVOŘENÍ 3D MASKY PRO TĚLO SONDY
     # Kov sondy je nabitý na Vf. Kvůli interpolaci může být hodnota mírně nepřesná,
-    # použijeme proto drobnou toleranci 1% pro detekci kovu.
-    tolerance = abs(params.Vf) * 0.01 if params.Vf != 0 else 0.01
+    # použijeme proto vyšší toleranci 10% pro detekci kovu (původně 1%).
+    tolerance = abs(params.Vf) * 0.10 if params.Vf != 0 else 0.1
     spacecraft_mask_3d = np.abs(V_bg_grid - params.Vf) <= tolerance
+
+    # FYZIKÁLNÍ KOREKCE: Uvnitř vodiče musí být pole nulové
+    Ex_bg[spacecraft_mask_3d] = 0.0
+    Ey_bg[spacecraft_mask_3d] = 0.0
+    Ez_bg[spacecraft_mask_3d] = 0.0
 
     # 2. Váhová pole a Voxelizace antén
     Vw_grids = []
@@ -221,7 +230,7 @@ def load_and_interpolate_vtk(params: SimulationParams3D):
             sampled_w = pic_grid.sample(mesh_w)
             pot_data = _extract_potential_from_mesh(sampled_w, vtk_file)
             Vw = pot_data.reshape((Nx, Ny, Nz))
-            print(f"  -> Váhové pole antény {i + 1} načteno.")
+            print(f"  -> Váhové pole antény {i + 1} načteno. Max: {np.nanmax(Vw):.3f}")
         except FileNotFoundError:
             print(f"  -> Upozornění: VTK váhy {vtk_file} nenalezeno. Vytvářím syntetickou anténu {i + 1}...")
             pos = synth_pos[i % len(synth_pos)]
@@ -230,12 +239,20 @@ def load_and_interpolate_vtk(params: SimulationParams3D):
 
         Vw_grids.append(Vw)
         Ewx, Ewy, Ewz = np.gradient(-Vw, params.dx, params.dy, params.dz)
+
+        # NOVÉ: Snížený práh pro detekci antény (původně 0.95)
+        # Hodnota 0.5 lépe zachytí i tenké antény v hrubší mřížce.
+        mask = Vw > 0.5
+        antenna_masks_3d.append(mask)
+
+        # FYZIKÁLNÍ KOREKCE: Uvnitř vodiče antény musí být váhové pole nulové
+        Ewx[mask] = 0.0
+        Ewy[mask] = 0.0
+        Ewz[mask] = 0.0
+
         Ewx_list.append(Ewx)
         Ewy_list.append(Ewy)
         Ewz_list.append(Ewz)
-
-        mask = Vw > 0.95
-        antenna_masks_3d.append(mask)
 
     return V_bg_grid, Vw_grids, Ex_bg, Ey_bg, Ez_bg, Ewx_list, Ewy_list, Ewz_list, antenna_masks_3d, spacecraft_mask_3d
 

@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import sys
+import os
+
+# Přidání kořenového adresáře do cesty pro import 'charging.py'
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from charging import calculate_equilibrium_potential, ENV_EARTH, MAT_ALUMINIUM, MAT_ALUMINIUM_ANTENNE
 from input_data_2d import setup_simulation_parameters_2d, save_results_npz, load_results_npz
 import sim_core_2d as core

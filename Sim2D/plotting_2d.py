@@ -31,7 +31,7 @@ def _plot_currents_and_voltage(results: Dict[str, Any], params: SimulationParams
         return
 
     fig1, (ax1a, ax1b) = plt.subplots(2, 1, figsize=(10, 8))
-    fig1.canvas.manager.set_window_title('2D Signály: Proudy a Napětí')
+    fig1.canvas.manager.set_window_title('2D Signals: Currents and Voltages')
 
     colors = ['blue', 'red', 'green', 'orange', 'purple', 'brown']
 
@@ -39,31 +39,31 @@ def _plot_currents_and_voltage(results: Dict[str, Any], params: SimulationParams
         c = colors[a_idx % len(colors)]
         # Pokud je víc antén, vykreslíme pro přehlednost plnou čarou jen jejich celkové proudy
         ax1a.plot(params.time_array * 1e6, results['smooth_total'][a_idx] * 1e9, color=c, lw=2,
-                  label=f'Celkový proud (Anténa {a_idx + 1})')
+                  label=f'Total Current (Antenna {a_idx + 1})')
         # ... a naznačíme tečkovaně Ramo-Shockleyho indukci
         ax1a.plot(params.time_array * 1e6, results['smooth_induced'][a_idx] * 1e9, color=c, ls=':', alpha=0.5)
 
         tau_us = ant['R'] * ant['C'] * 1e6
         ax1b.plot(params.time_array * 1e6, results['voltage_ant'][a_idx] * 1e3, color=c, lw=2.5,
-                  label=f'Napětí Antény {a_idx + 1} ($\\tau$ = {tau_us:.1f} µs)')
+                  label=f'Voltage Antenna {a_idx + 1} ($\\tau$ = {tau_us:.1f} µs)')
 
     ax1a.axvline(x=params.t_delay * 1e6, color='grey', linestyle='--', alpha=0.7)
-    ax1a.set_title("Celkové proudy tekoucí do jednotlivých antén")
-    ax1a.set_ylabel("Proud [nA]")
+    ax1a.set_title("Total Currents to Individual Antennas")
+    ax1a.set_ylabel("Current [nA]")
     ax1a.legend(loc='upper right')
     ax1a.grid(True, linestyle=':')
 
     ax1b.axvline(x=params.t_delay * 1e6, color='grey', linestyle='--', alpha=0.7)
-    ax1b.set_title("Odezva napětí paralelních RC Obvodů")
-    ax1b.set_xlabel("Čas [µs]")
-    ax1b.set_ylabel("Napětí [mV]")
+    ax1b.set_title("Voltage Response of Parallel RC Circuits")
+    ax1b.set_xlabel("Time [µs]")
+    ax1b.set_ylabel("Voltage [mV]")
     ax1b.legend(loc='upper right')
     ax1b.grid(True, linestyle=':')
     fig1.tight_layout()
 
     if plot_cfg.save_plots:
         fig1.savefig(plot_cfg.file_currents, dpi=300, bbox_inches='tight')
-        print(f"  [OK] Uloženo statické zobrazení: {plot_cfg.file_currents}")
+        print(f"  [OK] Saved static plot: {plot_cfg.file_currents}")
 
 
 def _animate_2d_fields(hist: Dict[str, Any], params: SimulationParams2D, plot_cfg: PlottingConfig,
@@ -72,7 +72,7 @@ def _animate_2d_fields(hist: Dict[str, Any], params: SimulationParams2D, plot_cf
         return
 
     fig2, (ax_V, ax_rho) = plt.subplots(2, 1, figsize=(10, 10))
-    fig2.canvas.manager.set_window_title('2D Makroskopická Pole')
+    fig2.canvas.manager.set_window_title('2D Macroscopic Fields')
 
     V_max = np.max([np.max(V) for V in hist['V']])
     V_min = np.min([np.min(V) for V in hist['V']])
@@ -83,20 +83,20 @@ def _animate_2d_fields(hist: Dict[str, Any], params: SimulationParams2D, plot_cf
 
     pcm_V = ax_V.pcolormesh(params.X_mat, params.Y_mat, hist['V'][0], shading='gouraud', cmap='viridis', vmin=V_min,
                             vmax=V_max)
-    fig2.colorbar(pcm_V, ax=ax_V, label='Potenciál [V]')
-    ax_V.set_title("2D Elektrický Potenciál")
+    fig2.colorbar(pcm_V, ax=ax_V, label='Potential [V]')
+    ax_V.set_title("2D Electric Potential")
     ax_V.set_ylabel("y [m]")
 
     pcm_rho = ax_rho.pcolormesh(params.X_mat, params.Y_mat, hist['rho'][0], shading='gouraud', cmap='seismic',
                                 vmin=-rho_max, vmax=rho_max)
-    fig2.colorbar(pcm_rho, ax=ax_rho, label='Hustota náboje [C/m³]')
-    ax_rho.set_title("2D Hustota Prostorového Náboje")
+    fig2.colorbar(pcm_rho, ax=ax_rho, label='Charge Density [C/m³]')
+    ax_rho.set_title("2D Space Charge Density")
     ax_rho.set_xlabel("x [m]")
     ax_rho.set_ylabel("y [m]")
 
     # Vykreslení těla sondy
-    ax_V.axvline(x=0, ymin=0.3, ymax=0.7, color='white', lw=4, alpha=0.5, label='Povrch sondy')
-    ax_rho.axvline(x=0, ymin=0.3, ymax=0.7, color='black', lw=4, alpha=0.5, label='Povrch sondy')
+    ax_V.axvline(x=0, ymin=0.3, ymax=0.7, color='white', lw=4, alpha=0.5, label='Spacecraft surface')
+    ax_rho.axvline(x=0, ymin=0.3, ymax=0.7, color='black', lw=4, alpha=0.5, label='Spacecraft surface')
 
     # Vykreslení všech antén
     for a_idx, ant in enumerate(params.antennas):
@@ -104,14 +104,14 @@ def _animate_2d_fields(hist: Dict[str, Any], params: SimulationParams2D, plot_cf
         ax_rho.plot([ant['x1'], ant['x2']], [ant['y1'], ant['y2']], color='black', lw=2, ls='--')
         # Přidat textovou popisku k první anténě, aby to nedělalo duplicity v legendě
         if a_idx == 0:
-            ax_rho.plot([], [], color='black', lw=2, ls='--', label='Drátové antény')
+            ax_rho.plot([], [], color='black', lw=2, ls='--', label='Wire Antennas')
 
     time_text = ax_V.text(0.02, 0.90, '', transform=ax_V.transAxes, color='white', weight='bold')
 
     def animate_fields(i):
         pcm_V.set_array(hist['V'][i].ravel())
         pcm_rho.set_array(hist['rho'][i].ravel())
-        time_text.set_text(f"Čas: {hist['t'][i] * 1e6:.2f} µs")
+        time_text.set_text(f"Time: {hist['t'][i] * 1e6:.2f} µs")
         return pcm_V, pcm_rho, time_text
 
     anim = animation.FuncAnimation(fig2, animate_fields, frames=len(hist['t']), interval=100, blit=False)
@@ -119,9 +119,9 @@ def _animate_2d_fields(hist: Dict[str, Any], params: SimulationParams2D, plot_cf
     fig2.tight_layout()
 
     if plot_cfg.save_plots:
-        print(f"  -> Ukládám 2D animaci polí...")
+        print(f"  -> Saving 2D fields animation...")
         anim.save(plot_cfg.file_fields_anim, writer='pillow', fps=15)
-        print(f"  [OK] Uloženo: {plot_cfg.file_fields_anim}")
+        print(f"  [OK] Saved: {plot_cfg.file_fields_anim}")
 
 
 def _plot_weighting_field(params: SimulationParams2D, plot_cfg: PlottingConfig) -> None:
@@ -129,7 +129,7 @@ def _plot_weighting_field(params: SimulationParams2D, plot_cfg: PlottingConfig) 
         return
 
     fig4, ax4 = plt.subplots(figsize=(10, 4))
-    fig4.canvas.manager.set_window_title('Ramo-Shockley: Citlivost antén')
+    fig4.canvas.manager.set_window_title('Ramo-Shockley: Antenna Sensitivity')
     colors = ['blue', 'red', 'green', 'orange', 'purple', 'brown']
 
     for a_idx, ant in enumerate(params.antennas):
@@ -140,25 +140,25 @@ def _plot_weighting_field(params: SimulationParams2D, plot_cfg: PlottingConfig) 
         y_slice = np.full_like(params.x_grid, y_mid)
 
         Vw_1d = calc_Vw_2d(params.x_grid, y_slice, ant['x1'], ant['y1'], ant['x2'], ant['y2'], ant['w_width'])
-        ax4.plot(params.x_grid, Vw_1d, color=c, lw=2, linestyle='--', label=f'$V_w$ (Anténa {a_idx + 1})')
+        ax4.plot(params.x_grid, Vw_1d, color=c, lw=2, linestyle='--', label=f'$V_w$ (Antenna {a_idx + 1})')
 
         Ewx, _ = calc_Ew_2d(params.x_grid, y_slice, ant['x1'], ant['y1'], ant['x2'], ant['y2'], ant['w_width'])
-        ax4.plot(params.x_grid, Ewx, color=c, lw=2, label=f'$E_{{w,x}}$ (Anténa {a_idx + 1})')
+        ax4.plot(params.x_grid, Ewx, color=c, lw=2, label=f'$E_{{w,x}}$ (Antenna {a_idx + 1})')
 
         x_mid = (ant['x1'] + ant['x2']) / 2.0
         ax4.axvline(x=x_mid, color=c, linestyle='-', alpha=0.3, lw=2)
 
     ax4.axhline(y=0, color='black', lw=1, alpha=0.5)
-    ax4.set_title("1D řezy váhovou funkcí pro všechny zapojené antény")
-    ax4.set_xlabel("Vzdálenost x [m]")
-    ax4.set_ylabel("Amplituda citlivosti")
+    ax4.set_title("1D Slices of Weighting Function for All Antennas")
+    ax4.set_xlabel("Distance x [m]")
+    ax4.set_ylabel("Sensitivity Amplitude")
     ax4.legend(loc='upper left', ncol=min(3, len(params.antennas)))
     ax4.grid(True, linestyle=':', alpha=0.7)
     fig4.tight_layout()
 
     if plot_cfg.save_plots:
         fig4.savefig(plot_cfg.file_weighting, dpi=300, bbox_inches='tight')
-        print(f"  [OK] Uloženo statické zobrazení: {plot_cfg.file_weighting}")
+        print(f"  [OK] Saved static plot: {plot_cfg.file_weighting}")
 
 
 def _animate_2d_particles(hist: Dict[str, Any], params: SimulationParams2D, plot_cfg: PlottingConfig,
@@ -167,23 +167,23 @@ def _animate_2d_particles(hist: Dict[str, Any], params: SimulationParams2D, plot
         return
 
     fig3, ax_pos = plt.subplots(figsize=(10, 6))
-    fig3.canvas.manager.set_window_title('2D Kinetika: Pozice částic')
+    fig3.canvas.manager.set_window_title('2D Kinetics: Particle Positions')
 
-    scat_e = ax_pos.scatter([], [], s=2, color='red', alpha=0.3, label='Elektrony')
-    scat_i = ax_pos.scatter([], [], s=2, color='blue', alpha=0.3, label='Ionty')
+    scat_e = ax_pos.scatter([], [], s=2, color='red', alpha=0.3, label='Electrons')
+    scat_i = ax_pos.scatter([], [], s=2, color='blue', alpha=0.3, label='Ions')
 
-    ax_pos.axvline(x=0, ymin=0.3, ymax=0.7, color='grey', lw=4, alpha=0.5, label='Povrch sondy')
-    ax_pos.scatter([0], [params.y_impact], color='orange', marker='*', s=200, label='Místo dopadu', zorder=5)
+    ax_pos.axvline(x=0, ymin=0.3, ymax=0.7, color='grey', lw=4, alpha=0.5, label='Spacecraft surface')
+    ax_pos.scatter([0], [params.y_impact], color='orange', marker='*', s=200, label='Impact Location', zorder=5)
 
     for a_idx, ant in enumerate(params.antennas):
-        lbl = 'Detekční Anténa' if a_idx == 0 else ""
+        lbl = 'Detection Antenna' if a_idx == 0 else ""
         ax_pos.plot([ant['x1'], ant['x2']], [ant['y1'], ant['y2']], color='black', lw=2, ls='--', label=lbl)
 
     ax_pos.set_xlim(0, params.L_domain)
     ax_pos.set_ylim(-params.H_domain, params.H_domain)
-    ax_pos.set_title("Expanze 2D Plazmatického Oblaku")
-    ax_pos.set_xlabel("Vzdálenost x [m]")
-    ax_pos.set_ylabel("Vzdálenost y [m]")
+    ax_pos.set_title("Expansion of 2D Plasma Cloud")
+    ax_pos.set_xlabel("Distance x [m]")
+    ax_pos.set_ylabel("Distance y [m]")
     ax_pos.legend(loc='upper right')
 
     time_text = ax_pos.text(0.02, 0.90, '', transform=ax_pos.transAxes, bbox=dict(facecolor='white', alpha=0.8))
@@ -198,7 +198,7 @@ def _animate_2d_particles(hist: Dict[str, Any], params: SimulationParams2D, plot
         if len(data_e) > 0: scat_e.set_offsets(data_e)
         if len(data_i) > 0: scat_i.set_offsets(data_i)
 
-        time_text.set_text(f"Čas: {hist['t'][i] * 1e6:.2f} µs")
+        time_text.set_text(f"Time: {hist['t'][i] * 1e6:.2f} µs")
         return scat_e, scat_i, time_text
 
     anim = animation.FuncAnimation(fig3, animate_particles, frames=len(hist['t']), interval=100, blit=False)
@@ -206,9 +206,9 @@ def _animate_2d_particles(hist: Dict[str, Any], params: SimulationParams2D, plot
     fig3.tight_layout()
 
     if plot_cfg.save_plots:
-        print(f"  -> Ukládám 2D animaci pozic částic...")
+        print(f"  -> Saving 2D particle positions animation...")
         anim.save(plot_cfg.file_particles_anim, writer='pillow', fps=15)
-        print(f"  [OK] Uloženo: {plot_cfg.file_particles_anim}")
+        print(f"  [OK] Saved: {plot_cfg.file_particles_anim}")
 
 
 def _animate_velocity_distribution(hist: Dict[str, Any], plot_cfg: PlottingConfig, animations: list) -> None:
@@ -216,12 +216,12 @@ def _animate_velocity_distribution(hist: Dict[str, Any], plot_cfg: PlottingConfi
         return
 
     fig4, ax_v = plt.subplots(figsize=(10, 4))
-    fig4.canvas.manager.set_window_title('Termodynamika: Celková velikost rychlosti')
+    fig4.canvas.manager.set_window_title('Thermodynamics: Total Velocity Magnitude')
 
-    line_ve, = ax_v.plot([], [], lw=2, color='red', drawstyle='steps-mid', label='Elektrony')
-    line_vi, = ax_v.plot([], [], lw=2, color='blue', drawstyle='steps-mid', label='Ionty')
-    ax_v.set_title("Rozložení celkové velikosti rychlosti (|v|)")
-    ax_v.set_xlabel("Velikost rychlosti |v| [m/s]")
+    line_ve, = ax_v.plot([], [], lw=2, color='red', drawstyle='steps-mid', label='Electrons')
+    line_vi, = ax_v.plot([], [], lw=2, color='blue', drawstyle='steps-mid', label='Ions')
+    ax_v.set_title("Distribution of Total Velocity Magnitude (|v|)")
+    ax_v.set_xlabel("Velocity Magnitude |v| [m/s]")
     ax_v.grid(True, linestyle=':')
     ax_v.legend()
 
@@ -258,9 +258,9 @@ def _animate_velocity_distribution(hist: Dict[str, Any], plot_cfg: PlottingConfi
     fig4.tight_layout()
 
     if plot_cfg.save_plots:
-        print(f"  -> Ukládám animaci histogramu rychlostí...")
+        print(f"  -> Saving velocity histogram animation...")
         anim.save(plot_cfg.file_velocity_anim, writer='pillow', fps=15)
-        print(f"  [OK] Uloženo: {plot_cfg.file_velocity_anim}")
+        print(f"  [OK] Saved: {plot_cfg.file_velocity_anim}")
 
 
 def _animate_phase_space(hist: Dict[str, Any], params: SimulationParams2D, plot_cfg: PlottingConfig,
@@ -269,12 +269,12 @@ def _animate_phase_space(hist: Dict[str, Any], params: SimulationParams2D, plot_
         return
 
     fig7, (ax_ps_e, ax_ps_i) = plt.subplots(2, 1, figsize=(10, 9))
-    fig7.canvas.manager.set_window_title('PIC Analýza: Fázový prostor (x-v)')
+    fig7.canvas.manager.set_window_title('PIC Analysis: Phase Space (x-v)')
 
     scat_ps_e = ax_ps_e.scatter([], [], s=1, color='red', alpha=0.3, edgecolors='none')
-    ax_ps_e.set_title("Fázový prostor elektronů (x, v_{x,e})")
-    ax_ps_e.set_xlabel("Vzdálenost x [m]")
-    ax_ps_e.set_ylabel("Dopředná rychlost $v_{x,e}$ [m/s]")
+    ax_ps_e.set_title("Phase Space of Electrons (x, v_{x,e})")
+    ax_ps_e.set_xlabel("Distance x [m]")
+    ax_ps_e.set_ylabel("Forward Velocity $v_{x,e}$ [m/s]")
     ax_ps_e.set_xlim(0, params.L_domain)
     for ant in params.antennas:
         x_min, x_max = min(ant['x1'], ant['x2']), max(ant['x1'], ant['x2'])
@@ -285,9 +285,9 @@ def _animate_phase_space(hist: Dict[str, Any], params: SimulationParams2D, plot_
     ax_ps_e.grid(True, linestyle=':', alpha=0.5)
 
     scat_ps_i = ax_ps_i.scatter([], [], s=1, color='blue', alpha=0.3, edgecolors='none')
-    ax_ps_i.set_title("Fázový prostor iontů (x, v_{x,i})")
-    ax_ps_i.set_xlabel("Vzdálenost x [m]")
-    ax_ps_i.set_ylabel("Dopředná rychlost $v_{x,i}$ [m/s]")
+    ax_ps_i.set_title("Phase Space of Ions (x, v_{x,i})")
+    ax_ps_i.set_xlabel("Distance x [m]")
+    ax_ps_i.set_ylabel("Forward Velocity $v_{x,i}$ [m/s]")
     ax_ps_i.set_xlim(0, params.L_domain)
     for ant in params.antennas:
         x_min, x_max = min(ant['x1'], ant['x2']), max(ant['x1'], ant['x2'])
@@ -329,7 +329,7 @@ def _animate_phase_space(hist: Dict[str, Any], params: SimulationParams2D, plot_
 
         if len(data_e) > 0: scat_ps_e.set_offsets(data_e)
         if len(data_i) > 0: scat_ps_i.set_offsets(data_i)
-        time_text_fig7.set_text(f"Čas: {hist['t'][i] * 1e6:.2f} µs")
+        time_text_fig7.set_text(f"Time: {hist['t'][i] * 1e6:.2f} µs")
         return scat_ps_e, scat_ps_i, time_text_fig7
 
     anim_ps = animation.FuncAnimation(fig7, animate_ps, frames=len(hist['t']), interval=100, blit=False)
@@ -337,25 +337,25 @@ def _animate_phase_space(hist: Dict[str, Any], params: SimulationParams2D, plot_
     fig7.tight_layout()
 
     if plot_cfg.save_plots:
-        print(f"  -> Ukládám animaci fázového prostoru...")
+        print(f"  -> Saving phase space animation...")
         anim_ps.save(plot_cfg.file_phase_space, writer='pillow', fps=15)
-        print(f"  [OK] Uloženo: {plot_cfg.file_phase_space}")
+        print(f"  [OK] Saved: {plot_cfg.file_phase_space}")
 
 
 def _export_data_csv(results: Dict[str, Any], params: SimulationParams2D, plot_cfg: PlottingConfig) -> None:
     if not plot_cfg.export_data_csv:
         return
 
-    print("  -> Exportuji makroskopická data do CSV formátu...")
+    print("  -> Exporting macroscopic data to CSV format...")
     try:
-        header_cols = ["Cas_s"]
+        header_cols = ["Time_s"]
         cols = [params.time_array]
 
         # Sestavení sloupců dynamicky pro každou zapojenou anténu
         for a_idx in range(len(params.antennas)):
-            header_cols.extend([f"Indukovany_proud_Ant{a_idx + 1}_A",
-                                f"Nasbirany_proud_Ant{a_idx + 1}_A",
-                                f"Napeti_Ant{a_idx + 1}_V"])
+            header_cols.extend([f"Induced_current_Ant{a_idx + 1}_A",
+                                f"Collected_current_Ant{a_idx + 1}_A",
+                                f"Voltage_Ant{a_idx + 1}_V"])
             cols.extend([results['smooth_induced'][a_idx],
                          results['smooth_collected'][a_idx],
                          results['voltage_ant'][a_idx]])
@@ -363,14 +363,14 @@ def _export_data_csv(results: Dict[str, Any], params: SimulationParams2D, plot_c
         export_matrix = np.column_stack(cols)
         header = ",".join(header_cols)
         np.savetxt(plot_cfg.file_csv, export_matrix, delimiter=",", header=header, comments="")
-        print(f"  [OK] Data úspěšně uložena do: {plot_cfg.file_csv}")
+        print(f"  [OK] Data successfully saved to: {plot_cfg.file_csv}")
     except Exception as e:
-        print(f"  [CHYBA] Nepodařilo se exportovat CSV. Detail: {e}")
+        print(f"  [ERROR] Failed to export CSV. Detail: {e}")
 
 
 def plot_simulation_results_2d(results: Dict[str, Any], params: SimulationParams2D, plot_cfg: PlottingConfig) -> None:
     print("=====================================================")
-    print("Generuji 2D Vizualizace a připravuji výstupy...")
+    print("Generating 2D Visualizations and preparing outputs...")
     print("=====================================================")
 
     animations = []
@@ -385,7 +385,7 @@ def plot_simulation_results_2d(results: Dict[str, Any], params: SimulationParams
     _export_data_csv(results, params, plot_cfg)
 
     print("=====================================================")
-    print("Post-processing ukončen. Soubory byly aktualizovány.")
+    print("Post-processing finished. Files updated.")
     if animations:
-        print(f"Zobrazuji interaktivní okna ({len(animations)}). Zavřete je pro ukončení programu.")
+        print(f"Showing interactive windows ({len(animations)}). Close them to exit the program.")
     plt.show()

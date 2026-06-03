@@ -18,8 +18,13 @@ class DustImpactSimulation3D:
         self.toggles = toggles
         self.num_antennas = len(self.p.vtk_files.antenna_weighting)
 
-        self.V_bg = V_bg
-        self.Ex_bg, self.Ey_bg, self.Ez_bg = Ex_bg, Ey_bg, Ez_bg
+        # Uložíme základní pole (očištěné o vliv antén, pokud předpokládáme, že V_bg ze SPIS je jen sonda)
+        self.V_bg_base = V_bg
+        self.Ex_bg_base, self.Ey_bg_base, self.Ez_bg_base = Ex_bg, Ey_bg, Ez_bg
+
+        # Aktuální celkové pole pozadí (bude se měnit)
+        self.Ex_bg, self.Ey_bg, self.Ez_bg = Ex_bg.copy(), Ey_bg.copy(), Ez_bg.copy()
+
         self.Ewx_list, self.Ewy_list, self.Ewz_list = Ewx_list, Ewy_list, Ewz_list
         self.antenna_masks_3d = antenna_masks_3d
         self.spacecraft_mask_3d = spacecraft_mask_3d
@@ -30,9 +35,6 @@ class DustImpactSimulation3D:
 
         self.vx_e, self.vy_e, self.vz_e = np.random.normal(0, v_th_e, (3, self.p.N_particles))
         self.vx_i, self.vy_i, self.vz_i = np.random.normal(0, v_th_i, (3, self.p.N_particles))
-
-        # Emise od povrchu sondy - pokud impakt není definován např. normálou, necháme sférický výbuch
-        # (Zde můžete opět aktivovat np.abs, pokud chcete částice usměrnit)
 
         self.x_e = np.full(self.p.N_particles, self.p.impact_pos[0])
         self.y_e = np.full(self.p.N_particles, self.p.impact_pos[1])
@@ -50,7 +52,11 @@ class DustImpactSimulation3D:
         self.col_curr_e = np.zeros((self.num_antennas, self.p.steps))
         self.col_curr_i = np.zeros((self.num_antennas, self.p.steps))
         self.tot_curr = np.zeros((self.num_antennas, self.p.steps))
+
+        # Startujeme s anténami nabitými na V_bias
         self.voltage_ant = np.zeros((self.num_antennas, self.p.steps))
+        for a_idx in range(self.num_antennas):
+            self.voltage_ant[a_idx, 0] = self.p.V_bias[a_idx]
 
         self.V_self_grid = np.zeros((self.p.Nx, self.p.Ny, self.p.Nz))
         self.Ex_self = np.zeros((self.p.Nx, self.p.Ny, self.p.Nz))
@@ -58,6 +64,7 @@ class DustImpactSimulation3D:
         self.Ez_self = np.zeros((self.p.Nx, self.p.Ny, self.p.Nz))
 
         self.combined_mask = np.zeros((self.p.Nx, self.p.Ny, self.p.Nz), dtype=bool)
+        self.combined_mask |= self.spacecraft_mask_3d
         for m in self.antenna_masks_3d:
             self.combined_mask |= m
 
@@ -75,7 +82,18 @@ class DustImpactSimulation3D:
         N_tot = Nx * Ny * Nz
         A_self = sp.lil_matrix((N_tot, N_tot))
 
+        print(f"=== Inicializace Poissonova řešiče (3D) ===")
+        print(f"  -> Celkový počet uzlů: {N_tot}")
+
+        sc_voxels = np.sum(self.spacecraft_mask_3d)
+        print(f"  -> Uzly těla sondy: {sc_voxels}")
+
+        for i, m in enumerate(self.antenna_masks_3d):
+            ant_voxels = np.sum(m)
+            print(f"  -> Uzly antény {i + 1}: {ant_voxels}")
+
         dx2, dy2, dz2 = self.p.dx ** 2, self.p.dy ** 2, self.p.dz ** 2
+        dirichlet_count = 0
 
         for i in range(Nx):
             for j in range(Ny):
@@ -84,6 +102,7 @@ class DustImpactSimulation3D:
                     is_boundary = (i == 0) or (i == Nx - 1) or (j == 0) or (j == Ny - 1) or (k == 0) or (k == Nz - 1)
                     if is_boundary or self.combined_mask[i, j, k]:
                         A_self[idx, idx] = 1.0
+                        dirichlet_count += 1
                     else:
                         A_self[idx, idx] = -2 / dx2 - 2 / dy2 - 2 / dz2
                         A_self[idx, self._get_1d_idx(i - 1, j, k)] = 1 / dx2
@@ -93,7 +112,24 @@ class DustImpactSimulation3D:
                         A_self[idx, self._get_1d_idx(i, j, k - 1)] = 1 / dz2
                         A_self[idx, self._get_1d_idx(i, j, k + 1)] = 1 / dz2
 
+        print(f"  -> Dirichletovy uzly celkem (vč. okrajů domény): {dirichlet_count}")
+        print(f"  -> Faktorizace matice Laplaciánu...")
         self.solver_self = spla.factorized(A_self.tocsc())
+        print(f"  -> Hotovo.")
+
+    def _update_background_field(self, step: int):
+        """ Dynamická superpozice polí pozadí podle aktuálního napětí na anténách. """
+        self.Ex_bg = self.Ex_bg_base.copy()
+        self.Ey_bg = self.Ey_bg_base.copy()
+        self.Ez_bg = self.Ez_bg_base.copy()
+
+        for a_idx in range(self.num_antennas):
+            V_curr = self.voltage_ant[a_idx, step]
+            # Vw_grid v 3D datech je pole při 1V na anténě.
+            # Předpokládáme, že základní pole V_bg_base má antény na 0V.
+            self.Ex_bg += V_curr * self.Ewx_list[a_idx]
+            self.Ey_bg += V_curr * self.Ewy_list[a_idx]
+            self.Ez_bg += V_curr * self.Ewz_list[a_idx]
 
     def _solve_poisson_equation(self):
         if not self.cloud_injected or not self.toggles.enable_self_field:
@@ -191,16 +227,12 @@ class DustImpactSimulation3D:
         idx_z = np.clip(((z[new_active] - self.p.z_grid[0]) / self.p.dz).astype(int), 0, self.p.Nz - 1)
 
         # 1. KOLIZE SE SONDOU (Absorpce na trupu)
-        # Zkontrolujeme, zda se po posunu částice nenachází uvnitř kovu sondy
         hit_sc = self.spacecraft_mask_3d[idx_x, idx_y, idx_z]
-
-        # Převedeme sub-masku `hit_sc` na globální indexy a zničíme nabourané částice
         global_active_indices = np.where(new_active)[0]
         destroyed_by_sc = global_active_indices[hit_sc]
         new_active[destroyed_by_sc] = False
 
         for a_idx in range(self.num_antennas):
-            # Posun výpočtu indexu kvůli záporným souřadnicím (aktualizováno jen pro přeživší)
             idx_x_ant = np.clip(((x[new_active] - self.p.x_grid[0]) / self.p.dx).astype(int), 0, self.p.Nx - 1)
             idx_y_ant = np.clip(((y[new_active] - self.p.y_grid[0]) / self.p.dy).astype(int), 0, self.p.Ny - 1)
             idx_z_ant = np.clip(((z[new_active] - self.p.z_grid[0]) / self.p.dz).astype(int), 0, self.p.Nz - 1)
@@ -243,7 +275,7 @@ class DustImpactSimulation3D:
         return col_currs, ind_currs
 
     def _save_history(self, current_time: float):
-        self.history['V'].append((self.V_bg + self.V_self_grid).copy())
+        self.history['V'].append((self.V_bg_base + self.V_self_grid).copy()) # Pozn: Zde by šlo přidat i vliv antén
         self.history['t'].append(current_time)
 
         self.history['x_e'].append(np.where(self.active_e, self.x_e, np.nan)[::self.p.plot_stride])
@@ -265,11 +297,21 @@ class DustImpactSimulation3D:
     def run(self) -> Dict[str, Any]:
         print(f"Spouštím 3D Simulaci... Mřížka: {self.p.Nx}x{self.p.Ny}x{self.p.Nz} | Počet antén: {self.num_antennas}")
 
+        progress_step = max(1, self.p.steps // 10)
+
         for step in range(self.p.steps):
+            if step % progress_step == 0:
+                percent = (step / self.p.steps) * 100
+                print(f"  -> Průběh: {percent:.0f}% ({step}/{self.p.steps} kroků)", flush=True)
+
             if not self.cloud_injected and step * self.p.dt >= self.p.t_delay:
                 self.active_e[:], self.active_i[:] = True, True
                 self.was_outside_e[:], self.was_outside_i[:] = False, False
                 self.cloud_injected = True
+
+            # AKTUALIZACE POZADÍ (Zpětná vazba)
+            if step > 0:
+                self._update_background_field(step - 1)
 
             self._solve_poisson_equation()
 
@@ -288,16 +330,22 @@ class DustImpactSimulation3D:
                 if step > 0:
                     dV_dt = I_tot / self.p.C_ant[a_idx]
                     if self.toggles.enable_rc_circuit:
-                        dV_dt -= self.voltage_ant[a_idx, step - 1] / (self.p.R_ant[a_idx] * self.p.C_ant[a_idx])
+                        # Relaxace k rovnovážnému potenciálu V_bias
+                        dV_dt -= (self.voltage_ant[a_idx, step - 1] - self.p.V_bias[a_idx]) / (self.p.R_ant[a_idx] * self.p.C_ant[a_idx])
                     self.voltage_ant[a_idx, step] = self.voltage_ant[a_idx, step - 1] + dV_dt * self.p.dt
 
             if step % self.p.save_interval == 0 or step == self.p.steps - 1:
                 self._save_history(step * self.p.dt)
 
-        # Post-processing okénkový filtr
-        res = {'smooth_induced': [], 'smooth_collected': [], 'smooth_total': [], 'voltage_ant': self.voltage_ant,
-               'history': self.history}
+        # Post-processing okénkový filtr (proběhne až po skončení hlavní smyčky)
         kernel = np.ones(100) / 100
+        res = {
+            'smooth_induced': [],
+            'smooth_collected': [],
+            'smooth_total': [],
+            'voltage_ant': self.voltage_ant,
+            'history': self.history
+        }
         for a_idx in range(self.num_antennas):
             res['smooth_induced'].append(
                 np.convolve(self.ind_curr_e[a_idx] + self.ind_curr_i[a_idx], kernel, mode='same'))
