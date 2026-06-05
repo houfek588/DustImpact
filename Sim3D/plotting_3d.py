@@ -337,6 +337,17 @@ def plot_simulation_results_3d(results: Dict, params: SimulationParams3D, plot_c
     print("Generating 3D Visualizations and preparing outputs...")
     print("=====================================================")
 
+    # KONZISTENČNÍ KONTROLA: Počet antén v datech vs v konfiguraci
+    data_ant_count = len(results.get('smooth_total', []))
+    cfg_ant_count = len(params.C_ant)
+    
+    if data_ant_count != cfg_ant_count:
+        print(f"\n[CHYBA] Nesoulad v počtu antén!")
+        print(f"  -> Konfigurace očekává: {cfg_ant_count}")
+        print(f"  -> Načtená data obsahují: {data_ant_count}")
+        print(f"  -> DOPORUČENÍ: Nastavte 'run_simulation': true v configu a spusťte výpočet znovu.\n")
+        return
+
     anims = []
 
     # Plot static fields if provided

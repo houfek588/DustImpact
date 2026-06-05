@@ -27,6 +27,7 @@ class SimulationToggles3D:
 @dataclass
 class VTKFilesConfig:
     background_potential: str = "spis_V_bg.vtk"
+    spacecraft_weighting: str = "spis_Vw_body.vtk"
     antenna_weighting: List[str] = field(default_factory=lambda: [
         "spis_Vw_ant1.vtk",
         "spis_Vw_ant2.vtk",
@@ -207,36 +208,34 @@ def load_and_interpolate_vtk(params: SimulationParams3D):
 
 def _detect_metal_mask_3d(V: np.ndarray, dx_min: float) -> np.ndarray:
     """ 
-    Autonomní detekce kovu z dat. 
-    Sama určí cílový potenciál a detekuje skok (gradient).
+    Robustní detekce kovu pro víceúrovňové potenciály.
+    Identifikuje všechny uzavřené povrchy s prudkým skokem potenciálu.
     """
-    # 1. Odhad cílového potenciálu (hladina Vf nebo 1.0 na kovu)
-    # Použijeme 99.9. percentil absolutních hodnot pro robustní odhad maxima bez šumu
-    v_abs = np.abs(V)
-    v_target_est_abs = np.nanpercentile(v_abs, 99.9)
-    
-    # Najdeme znaménko (sonda může být nabitá kladně i záporně)
-    v_max = np.nanmax(V)
-    v_min = np.nanmin(V)
-    v_target_est = v_max if abs(v_max) >= abs(v_min) else v_min
-    
-    # Pokud je signál v datech příliš slabý, nic nedetekujeme
-    if v_target_est_abs < 1e-3:
-        return np.zeros_like(V, dtype=bool)
-
-    # 2. Detekce hodnoty (tolerance 10% z odhadnutého maxima)
-    mask_value = np.abs(V - v_target_est) <= (v_target_est_abs * 0.10)
-    
-    # 3. Detekce skoku (gradientu)
-    # Teoretický maximální gradient při skoku Target -> 0 na jedné buňce
+    # 1. Výpočet velikosti pole (gradientu)
     Ex, Ey, Ez = np.gradient(-V, dx_min, dx_min, dx_min)
     grad_mag = np.sqrt(Ex**2 + Ey**2 + Ez**2)
-    jump_threshold = 0.5 * (v_target_est_abs / dx_min)
-    mask_jump = grad_mag > jump_threshold
     
-    # 4. Spojení a vyplnění vnitřku
-    shell = mask_value | mask_jump
-    return ndimage.binary_fill_holes(shell)
+    # 2. Stanovení prahu pro "skok" (Jump)
+    # Hledáme hranice. I těleso s nízkým napětím (např. 1V) vytvoří na jedné buňce 
+    # mnohem větší gradient než je běžné Debyeovo stínění v plazmatu.
+    # Vezmeme 10% z maximálního zjištěného pole jako detekční hranici pro "skořápku".
+    max_grad = np.nanmax(grad_mag)
+    if max_grad < 1e-3: 
+        return np.zeros_like(V, dtype=bool)
+        
+    jump_threshold = 0.3 * max_grad
+    
+    # 3. Vytvoření masky skořápek (hranic všech těles v datech)
+    shell = grad_mag > jump_threshold
+    
+    # 4. Zalití všech vnitřků (vytvoří plná tělesa ze všech uzavřených skořápek)
+    mask = ndimage.binary_fill_holes(shell)
+    
+    # Bezpečnostní pojistka: uzel je kov jen pokud tam není nulový potenciál 
+    # ZÁROVEŇ se tam ten potenciál nemění (vnitřek vodiče).
+    # Ale v mnoha SPIS datech je vnitřek čistá nula, takže spoléháme hlavně na binary_fill_holes.
+    
+    return mask
 
 
 def load_and_interpolate_vtk(params: SimulationParams3D):
@@ -266,20 +265,29 @@ def load_and_interpolate_vtk(params: SimulationParams3D):
         V_bg_grid = np.zeros((Nx, Ny, Nz))
         # Syntetická sonda uprostřed prostoru
         r_sq = X ** 2 + Y ** 2 + Z ** 2
-        mask_sonda = r_sq < 0.5 ** 2
-        V_bg_grid[mask_sonda] = params.Vf
+        mask_s_synth = r_sq < 0.5 ** 2
+        V_bg_grid[mask_s_synth] = params.Vf
 
     Ex_bg, Ey_bg, Ez_bg = np.gradient(-V_bg_grid, params.dx, params.dy, params.dz)
     
-    # Autonomní detekce masky sondy
-    spacecraft_mask_3d = _detect_metal_mask_3d(V_bg_grid, dx_min)
+    # 2. Geometrie tělesa sondy (z váhového pole body)
+    try:
+        mesh_body = pv.read(params.vtk_files.spacecraft_weighting)
+        sampled_body = pic_grid.sample(mesh_body)
+        pot_body = _extract_potential_from_mesh(sampled_body, params.vtk_files.spacecraft_weighting)
+        Vw_body = pot_body.reshape((Nx, Ny, Nz))
+        spacecraft_mask_3d = _detect_metal_mask_3d(Vw_body, dx_min)
+        print(f"  -> Geometrie tělesa sondy načtena z {params.vtk_files.spacecraft_weighting}.")
+    except FileNotFoundError:
+        print(f"  -> Upozornění: VTK váhy těla {params.vtk_files.spacecraft_weighting} nenalezeno. Používám odhad z V_bg...")
+        spacecraft_mask_3d = _detect_metal_mask_3d(V_bg_grid, dx_min)
 
     # FYZIKÁLNÍ KOREKCE: Uvnitř vodiče musí být pole nulové
     Ex_bg[spacecraft_mask_3d] = 0.0
     Ey_bg[spacecraft_mask_3d] = 0.0
     Ez_bg[spacecraft_mask_3d] = 0.0
 
-    # 2. Váhová pole a Voxelizace antén
+    # 3. Váhová pole a Voxelizace antén
     Vw_grids = []
     Ewx_list, Ewy_list, Ewz_list = [], [], []
     antenna_masks_3d = []
