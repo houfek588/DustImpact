@@ -10,9 +10,19 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from input_data_3d import setup_simulation_parameters_3d, load_and_interpolate_vtk
 from input_data_3d import save_results_npz, load_results_npz
 import sim_core_3d as core
+import argparse
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="3D PIC Simulátor dopadu prachu.")
+    parser.add_argument(
+        "--config", "-c",
+        type=str,
+        default="config_3d.json",
+        help="Cesta ke konfiguračnímu JSON souboru (výchozí: config_3d.json)"
+    )
+    args = parser.parse_args()
+
     from charging import calculate_equilibrium_potential, ENV_EARTH, MAT_ALUMINIUM, MAT_ALUMINIUM_ANTENNE
     
     V_equilibrium = calculate_equilibrium_potential(ENV_EARTH, MAT_ALUMINIUM)
@@ -23,8 +33,10 @@ if __name__ == "__main__":
     print(f"Plovoucí potenciál antény: {V_equilibrium_antenne:.3f} V")
 
     # 1. Konfigurace a načtení VTK (SPIS data nebo Syntetický fallback)
-    sim_params, sim_toggles, plot_config = setup_simulation_parameters_3d(V_equilibrium, V_equilibrium_antenne)
+    print(f"Načítám konfiguraci z: {args.config}")
+    sim_params, sim_toggles, plot_config = setup_simulation_parameters_3d(V_equilibrium, V_equilibrium_antenne, config_file=args.config)
     print(f"Vypočtená Debyeova délka: {sim_params.debye_length:.3f} m")
+    print(f"Fyzická velikost elementu mřížky: dx = {sim_params.dx:.3f} m, dy = {sim_params.dy:.3f} m, dz = {sim_params.dz:.3f} m")
 
     # NOVÉ: Vytažení masky sondy ze čtečky dat
     V_bg, Vw_grids, Ex_bg, Ey_bg, Ez_bg, Ewx, Ewy, Ewz, ant_masks, sc_mask = load_and_interpolate_vtk(sim_params)

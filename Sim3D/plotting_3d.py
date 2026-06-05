@@ -58,13 +58,25 @@ def _animate_yz_fields_slice(hist: Dict, params: SimulationParams3D, plot_cfg: P
     fig2.canvas.manager.set_window_title('3D Fields: 2D YZ Slice (x = 0)')
 
     mid_x = params.Nx // 2
-    V_max = np.max([np.max(V[mid_x, :, :]) for V in hist['V']])
-    V_min = np.min([np.min(V[mid_x, :, :]) for V in hist['V']])
+    
+    # Bezpečný výpočet mezí pro barvy (vynechání NaN a Inf)
+    all_V_slices = [V[mid_x, :, :] for V in hist['V']]
+    flat_V = np.concatenate([v.ravel() for v in all_V_slices])
+    finite_V = flat_V[np.isfinite(flat_V)]
+    
+    if len(finite_V) > 0:
+        V_min, V_max = np.min(finite_V), np.max(finite_V)
+    else:
+        V_min, V_max = -1.0, 1.0
+        
     if V_max == V_min: V_max += 1.0; V_min -= 1.0
 
     # Horizontal axis is Y, Vertical axis is Z
     Y, Z = np.meshgrid(params.y_grid, params.z_grid, indexing='ij')
-    pcm = ax_V.pcolormesh(Y, Z, hist['V'][0][mid_x, :, :], shading='gouraud', cmap='viridis', vmin=V_min, vmax=V_max)
+    
+    # První snímek
+    V0_clean = np.nan_to_num(hist['V'][0][mid_x, :, :], nan=0.0)
+    pcm = ax_V.pcolormesh(Y, Z, V0_clean, shading='auto', cmap='viridis', vmin=V_min, vmax=V_max)
     fig2.colorbar(pcm, ax=ax_V, label='Potential [V]')
 
     # Plot exact geometry from masks (slice at mid_x)
@@ -85,7 +97,8 @@ def _animate_yz_fields_slice(hist: Dict, params: SimulationParams3D, plot_cfg: P
     time_text = ax_V.text(0.02, 0.90, '', transform=ax_V.transAxes, color='white', weight='bold')
 
     def update(i):
-        pcm.set_array(hist['V'][i][mid_x, :, :].ravel())
+        V_clean = np.nan_to_num(hist['V'][i][mid_x, :, :], nan=0.0)
+        pcm.set_array(V_clean.ravel())
         time_text.set_text(f"Time: {hist['t'][i] * 1e6:.2f} µs")
         return pcm, time_text
 
@@ -139,8 +152,15 @@ def _animate_yz_particles_slice(hist: Dict, params: SimulationParams3D, plot_cfg
         data_e = np.column_stack((hist['y_e'][i][me_slice], hist['z_e'][i][me_slice]))
         data_i = np.column_stack((hist['y_i'][i][mi_slice], hist['z_i'][i][mi_slice]))
 
-        if len(data_e) > 0: scat_e.set_offsets(data_e)
-        if len(data_i) > 0: scat_i.set_offsets(data_i)
+        if len(data_e) > 0: 
+            scat_e.set_offsets(data_e)
+        else:
+            scat_e.set_offsets(np.empty((0, 2)))
+            
+        if len(data_e) > 0: 
+            scat_i.set_offsets(data_i)
+        else:
+            scat_i.set_offsets(np.empty((0, 2)))
 
         time_text.set_text(f"Time: {hist['t'][i] * 1e6:.2f} µs")
         return scat_e, scat_i, time_text

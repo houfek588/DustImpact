@@ -7,6 +7,7 @@ from dataclasses import dataclass, field, asdict, fields
 from typing import Tuple, List, Dict, Any
 import json
 import os
+import scipy.ndimage as ndimage
 
 # Fyzikální konstanty
 amu = 1.66053906660e-27  # kg
@@ -204,13 +205,74 @@ def load_and_interpolate_vtk(params: SimulationParams3D):
         mask_sonda = r_sq < 0.5 ** 2
         V_bg_grid[mask_sonda] = params.Vf
 
-    Ex_bg, Ey_bg, Ez_bg = np.gradient(-V_bg_grid, params.dx, params.dy, params.dz)
+def _detect_metal_mask_3d(V: np.ndarray, dx_min: float) -> np.ndarray:
+    """ 
+    Autonomní detekce kovu z dat. 
+    Sama určí cílový potenciál a detekuje skok (gradient).
+    """
+    # 1. Odhad cílového potenciálu (hladina Vf nebo 1.0 na kovu)
+    # Použijeme 99.9. percentil absolutních hodnot pro robustní odhad maxima bez šumu
+    v_abs = np.abs(V)
+    v_target_est_abs = np.nanpercentile(v_abs, 99.9)
+    
+    # Najdeme znaménko (sonda může být nabitá kladně i záporně)
+    v_max = np.nanmax(V)
+    v_min = np.nanmin(V)
+    v_target_est = v_max if abs(v_max) >= abs(v_min) else v_min
+    
+    # Pokud je signál v datech příliš slabý, nic nedetekujeme
+    if v_target_est_abs < 1e-3:
+        return np.zeros_like(V, dtype=bool)
 
-    # NOVÉ: VYTVOŘENÍ 3D MASKY PRO TĚLO SONDY
-    # Kov sondy je nabitý na Vf. Kvůli interpolaci může být hodnota mírně nepřesná,
-    # použijeme proto vyšší toleranci 10% pro detekci kovu (původně 1%).
-    tolerance = abs(params.Vf) * 0.10 if params.Vf != 0 else 0.1
-    spacecraft_mask_3d = np.abs(V_bg_grid - params.Vf) <= tolerance
+    # 2. Detekce hodnoty (tolerance 10% z odhadnutého maxima)
+    mask_value = np.abs(V - v_target_est) <= (v_target_est_abs * 0.10)
+    
+    # 3. Detekce skoku (gradientu)
+    # Teoretický maximální gradient při skoku Target -> 0 na jedné buňce
+    Ex, Ey, Ez = np.gradient(-V, dx_min, dx_min, dx_min)
+    grad_mag = np.sqrt(Ex**2 + Ey**2 + Ez**2)
+    jump_threshold = 0.5 * (v_target_est_abs / dx_min)
+    mask_jump = grad_mag > jump_threshold
+    
+    # 4. Spojení a vyplnění vnitřku
+    shell = mask_value | mask_jump
+    return ndimage.binary_fill_holes(shell)
+
+
+def load_and_interpolate_vtk(params: SimulationParams3D):
+    """ Voxelizace SPIS mřížky a příprava polí. """
+    print("Mapování SPIS VTK na 3D pravoúhlou mřížku...")
+
+    # Počátek (origin) nyní začíná v záporných souřadnicích (-L_x, -L_y, -L_z)
+    pic_grid = pv.ImageData(
+        dimensions=(params.Nx, params.Ny, params.Nz),
+        spacing=(params.dx, params.dy, params.dz),
+        origin=(-params.L_x, -params.L_y, -params.L_z)
+    )
+
+    Nx, Ny, Nz = params.Nx, params.Ny, params.Nz
+    X, Y, Z = np.meshgrid(params.x_grid, params.y_grid, params.z_grid, indexing='ij')
+    dx_min = min(params.dx, params.dy, params.dz)
+
+    # 1. Pole pozadí (V_bg)
+    try:
+        mesh_bg = pv.read(params.vtk_files.background_potential)
+        sampled_bg = pic_grid.sample(mesh_bg)
+        pot_data = _extract_potential_from_mesh(sampled_bg, params.vtk_files.background_potential)
+        V_bg_grid = pot_data.reshape((Nx, Ny, Nz))
+        print(f"  -> Pozadí načteno. Rozsah potenciálu: {np.nanmin(V_bg_grid):.2f} až {np.nanmax(V_bg_grid):.2f} V")
+    except FileNotFoundError:
+        print("  -> Upozornění: VTK pozadí nenalezeno. Vytvářím syntetické analytické pole...")
+        V_bg_grid = np.zeros((Nx, Ny, Nz))
+        # Syntetická sonda uprostřed prostoru
+        r_sq = X ** 2 + Y ** 2 + Z ** 2
+        mask_sonda = r_sq < 0.5 ** 2
+        V_bg_grid[mask_sonda] = params.Vf
+
+    Ex_bg, Ey_bg, Ez_bg = np.gradient(-V_bg_grid, params.dx, params.dy, params.dz)
+    
+    # Autonomní detekce masky sondy
+    spacecraft_mask_3d = _detect_metal_mask_3d(V_bg_grid, dx_min)
 
     # FYZIKÁLNÍ KOREKCE: Uvnitř vodiče musí být pole nulové
     Ex_bg[spacecraft_mask_3d] = 0.0
@@ -239,10 +301,9 @@ def load_and_interpolate_vtk(params: SimulationParams3D):
 
         Vw_grids.append(Vw)
         Ewx, Ewy, Ewz = np.gradient(-Vw, params.dx, params.dy, params.dz)
-
-        # NOVÉ: Snížený práh pro detekci antény (původně 0.95)
-        # Hodnota 0.5 lépe zachytí i tenké antény v hrubší mřížce.
-        mask = Vw > 0.5
+        
+        # Autonomní detekce masky antény
+        mask = _detect_metal_mask_3d(Vw, dx_min)
         antenna_masks_3d.append(mask)
 
         # FYZIKÁLNÍ KOREKCE: Uvnitř vodiče antény musí být váhové pole nulové
@@ -255,6 +316,8 @@ def load_and_interpolate_vtk(params: SimulationParams3D):
         Ewz_list.append(Ewz)
 
     return V_bg_grid, Vw_grids, Ex_bg, Ey_bg, Ez_bg, Ewx_list, Ewy_list, Ewz_list, antenna_masks_3d, spacecraft_mask_3d
+
+
 
 
 def save_results_npz(results: Dict[str, Any], filepath: str) -> None:

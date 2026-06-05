@@ -5,6 +5,15 @@ import numpy as np
 import scipy.sparse as sp
 import scipy.sparse.linalg as spla
 from typing import Dict, Any, Tuple
+import sys
+
+
+try:
+    import pyamg
+except ImportError:
+    print("[CHYBA] Knihovna 'pyamg' nenalezena. Pro 3D simulace s vysokým rozlišením je nezbytná.")
+    print("Nainstalujte ji pomocí: pip install pyamg")
+    sys.exit(1)
 
 from input_data_3d import SimulationParams3D, SimulationToggles3D
 from input_data_3d import e, m_e, eps_0
@@ -80,7 +89,6 @@ class DustImpactSimulation3D:
     def _build_3d_poisson_solver(self):
         Nx, Ny, Nz = self.p.Nx, self.p.Ny, self.p.Nz
         N_tot = Nx * Ny * Nz
-        A_self = sp.lil_matrix((N_tot, N_tot))
 
         print(f"=== Inicializace Poissonova řešiče (3D) ===")
         print(f"  -> Celkový počet uzlů: {N_tot}")
@@ -95,27 +103,59 @@ class DustImpactSimulation3D:
         dx2, dy2, dz2 = self.p.dx ** 2, self.p.dy ** 2, self.p.dz ** 2
         dirichlet_count = 0
 
+        # Optimalizovaná stavba matice pomocí COO formátu (výrazně šetří RAM oproti LIL)
+        row = []
+        col = []
+        data = []
+
         for i in range(Nx):
             for j in range(Ny):
                 for k in range(Nz):
                     idx = self._get_1d_idx(i, j, k)
                     is_boundary = (i == 0) or (i == Nx - 1) or (j == 0) or (j == Ny - 1) or (k == 0) or (k == Nz - 1)
                     if is_boundary or self.combined_mask[i, j, k]:
-                        A_self[idx, idx] = 1.0
+                        row.append(idx)
+                        col.append(idx)
+                        data.append(1.0)
                         dirichlet_count += 1
                     else:
-                        A_self[idx, idx] = -2 / dx2 - 2 / dy2 - 2 / dz2
-                        A_self[idx, self._get_1d_idx(i - 1, j, k)] = 1 / dx2
-                        A_self[idx, self._get_1d_idx(i + 1, j, k)] = 1 / dx2
-                        A_self[idx, self._get_1d_idx(i, j - 1, k)] = 1 / dy2
-                        A_self[idx, self._get_1d_idx(i, j + 1, k)] = 1 / dy2
-                        A_self[idx, self._get_1d_idx(i, j, k - 1)] = 1 / dz2
-                        A_self[idx, self._get_1d_idx(i, j, k + 1)] = 1 / dz2
+                        row.append(idx)
+                        col.append(idx)
+                        data.append(-2 / dx2 - 2 / dy2 - 2 / dz2)
+                        
+                        row.append(idx)
+                        col.append(self._get_1d_idx(i - 1, j, k))
+                        data.append(1 / dx2)
+                        
+                        row.append(idx)
+                        col.append(self._get_1d_idx(i + 1, j, k))
+                        data.append(1 / dx2)
+                        
+                        row.append(idx)
+                        col.append(self._get_1d_idx(i, j - 1, k))
+                        data.append(1 / dy2)
+                        
+                        row.append(idx)
+                        col.append(self._get_1d_idx(i, j + 1, k))
+                        data.append(1 / dy2)
+                        
+                        row.append(idx)
+                        col.append(self._get_1d_idx(i, j, k - 1))
+                        data.append(1 / dz2)
+                        
+                        row.append(idx)
+                        col.append(self._get_1d_idx(i, j, k + 1))
+                        data.append(1 / dz2)
 
         print(f"  -> Dirichletovy uzly celkem (vč. okrajů domény): {dirichlet_count}")
-        print(f"  -> Faktorizace matice Laplaciánu...")
-        self.solver_self = spla.factorized(A_self.tocsc())
+        print(f"  -> Stavím matici CSR...")
+        A_csr = sp.coo_matrix((data, (row, col)), shape=(N_tot, N_tot)).tocsr()
+        
+        print(f"  -> Stavím AMG hierarchii (PyAMG)...")
+        self.solver_self = pyamg.ruge_stuben_solver(A_csr)
+        print(f"  -> AMG řešič připraven. Počet úrovní: {len(self.solver_self.levels)}")
         print(f"  -> Hotovo.")
+
 
     def _update_background_field(self, step: int):
         """ Dynamická superpozice polí pozadí podle aktuálního napětí na anténách. """
@@ -156,7 +196,10 @@ class DustImpactSimulation3D:
                     if not (is_boundary or self.combined_mask[i, j, k]):
                         b_self[idx] = -rho_grid[i, j, k] / eps_0
 
-        V_self_1d = self.solver_self(b_self)
+        # Teplý start: použijeme potenciál z předchozího kroku jako počáteční odhad
+        x0 = self.V_self_grid.ravel()
+        V_self_1d = self.solver_self.solve(b_self, x0=x0, tol=1e-5)
+        
         self.V_self_grid = V_self_1d.reshape((Nx, Ny, Nz))
         self.Ex_self, self.Ey_self, self.Ez_self = np.gradient(-self.V_self_grid, self.p.dx, self.p.dy, self.p.dz)
 
@@ -220,6 +263,19 @@ class DustImpactSimulation3D:
         z[active] += vz[active] * self.p.dt
 
         new_active = active.copy()
+
+        # BEZPEČNOSTNÍ POJISTKA: Vyřazení částic s NaN/Inf souřadnicemi (prevence pádů z numerického přetečení)
+        bad_pos = ~np.isfinite(x[new_active]) | ~np.isfinite(y[new_active]) | ~np.isfinite(z[new_active])
+        if np.any(bad_pos):
+            global_active_idx = np.where(new_active)[0]
+            new_active[global_active_idx[bad_pos]] = False
+            # Ořízneme dočasná pole, abychom dál pokračovali jen se zdravými částicemi
+            valid_mask = ~bad_pos
+            x_act, y_act, z_act = x_act[valid_mask], y_act[valid_mask], z_act[valid_mask]
+
+        if not np.any(new_active):
+            active[:] = new_active
+            return col_currs, ind_currs
 
         # Vypočítáme diskrétní indexy pro mřížku
         idx_x = np.clip(((x[new_active] - self.p.x_grid[0]) / self.p.dx).astype(int), 0, self.p.Nx - 1)
