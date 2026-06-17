@@ -7,7 +7,7 @@ import matplotlib.animation as animation
 from mpl_toolkits.mplot3d import Axes3D
 from typing import Dict, Any
 
-from input_data_3d import SimulationParams3D, PlottingConfig3D
+from config_loader_3d import SimulationParams3D, PlottingConfig3D
 
 
 def _get_v_mag_3d(hist: Dict[str, Any], species: str, i: int) -> np.ndarray:

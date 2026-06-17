@@ -15,8 +15,8 @@ except ImportError:
     print("Nainstalujte ji pomocí: pip install pyamg")
     sys.exit(1)
 
-from input_data_3d import SimulationParams3D, SimulationToggles3D
-from input_data_3d import e, m_e, eps_0
+from config_loader_3d import SimulationParams3D, SimulationToggles3D
+from config_loader_3d import e, m_e, eps_0
 
 
 class DustImpactSimulation3D:
@@ -38,12 +38,39 @@ class DustImpactSimulation3D:
         self.antenna_masks_3d = antenna_masks_3d
         self.spacecraft_mask_3d = spacecraft_mask_3d
 
-        # 3D Sferická maxwellovská emise částic
+        # 3D Sferická maxwellovská emise částic pro elektrony
         v_th_e = np.sqrt(2 * e * self.p.T_dust_eV / m_e)
         v_th_i = np.sqrt(2 * e * self.p.T_dust_eV / self.p.m_i)
 
         self.vx_e, self.vy_e, self.vz_e = np.random.normal(0, v_th_e, (3, self.p.N_particles))
-        self.vx_i, self.vy_i, self.vz_i = np.random.normal(0, v_th_i, (3, self.p.N_particles))
+
+        # Ionty: Směrová emise podle Lambertova kosinova zákona (Rayleigh pro normálu, Gaussian pro tečny)
+        n = np.array(self.p.impact_normal, dtype=float)
+        n_norm = np.linalg.norm(n)
+        if n_norm > 0:
+            n = n / n_norm
+        else:
+            n = np.array([-0.7071, 0.7071, 0.0])
+
+        # Hledáme první tečný vektor t1 kolmý na n
+        if abs(n[2]) < 0.9:
+            t1 = np.array([n[1], -n[0], 0.0], dtype=float)
+        else:
+            t1 = np.array([0.0, n[2], -n[1]], dtype=float)
+        t1 /= np.linalg.norm(t1)
+
+        # Druhý tečný vektor t2 kolmý na n i t1
+        t2 = np.cross(n, t1)
+
+        # Generování složek v lokální bázi
+        v_n = np.random.rayleigh(scale=v_th_i, size=self.p.N_particles)
+        v_t1 = np.random.normal(0, v_th_i, self.p.N_particles)
+        v_t2 = np.random.normal(0, v_th_i, self.p.N_particles)
+
+        # Transformace z lokální báze do globálních souřadnic
+        self.vx_i = v_n * n[0] + v_t1 * t1[0] + v_t2 * t2[0]
+        self.vy_i = v_n * n[1] + v_t1 * t1[1] + v_t2 * t2[1]
+        self.vz_i = v_n * n[2] + v_t1 * t1[2] + v_t2 * t2[2]
 
         self.x_e = np.full(self.p.N_particles, self.p.impact_pos[0])
         self.y_e = np.full(self.p.N_particles, self.p.impact_pos[1])

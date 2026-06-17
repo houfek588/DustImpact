@@ -7,8 +7,9 @@ import os
 # Přidání kořenového adresáře do cesty pro import 'charging.py'
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from input_data_3d import setup_simulation_parameters_3d, load_and_interpolate_vtk
-from input_data_3d import save_results_npz, load_results_npz
+from config_loader_3d import setup_simulation_parameters_3d
+from vtk_reader_3d import load_and_interpolate_vtk
+from io_utils_3d import save_results_npz, load_results_npz
 import sim_core_3d as core
 import argparse
 
