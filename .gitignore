@@ -216,3 +216,12 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Simulation output files & data
+outputs/*.npz
+outputs/*.gif
+outputs/*.png
+outputs/*.csv
+*.npz
+*.gif
+
