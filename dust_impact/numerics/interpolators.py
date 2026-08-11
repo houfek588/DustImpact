@@ -1,11 +1,23 @@
 # -*- coding: utf-8 -*-
 """
 High-performance vectorized Grid-to-Particle interpolators (2D Bilinear and 3D Trilinear).
+Supports Numba JIT acceleration with pure NumPy fallback.
 """
 
 import numpy as np
 
+try:
+    from numba import njit
+    HAS_NUMBA = True
+except ImportError:
+    HAS_NUMBA = False
+    def njit(*args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator
 
+
+@njit(fastmath=True)
 def interp_field_2d(x: np.ndarray, y: np.ndarray, x_grid: np.ndarray, y_grid: np.ndarray,
                     dx: float, dy: float, Field_2D: np.ndarray) -> np.ndarray:
     """
@@ -15,8 +27,8 @@ def interp_field_2d(x: np.ndarray, y: np.ndarray, x_grid: np.ndarray, y_grid: np
     idx_x = (x - x_grid[0]) / dx
     idx_y = (y - y_grid[0]) / dy
 
-    i = np.clip(np.floor(idx_x).astype(int), 0, Nx - 2)
-    j = np.clip(np.floor(idx_y).astype(int), 0, Ny - 2)
+    i = np.clip(np.floor(idx_x).astype(np.int64), 0, Nx - 2)
+    j = np.clip(np.floor(idx_y).astype(np.int64), 0, Ny - 2)
 
     tx = idx_x - i
     ty = idx_y - j
@@ -29,6 +41,7 @@ def interp_field_2d(x: np.ndarray, y: np.ndarray, x_grid: np.ndarray, y_grid: np
     return (1 - tx) * (1 - ty) * c00 + tx * (1 - ty) * c10 + (1 - tx) * ty * c01 + tx * ty * c11
 
 
+@njit(fastmath=True)
 def interp_field_3d(x: np.ndarray, y: np.ndarray, z: np.ndarray,
                     x_grid: np.ndarray, y_grid: np.ndarray, z_grid: np.ndarray,
                     dx: float, dy: float, dz: float, Field_3D: np.ndarray) -> np.ndarray:
@@ -40,9 +53,9 @@ def interp_field_3d(x: np.ndarray, y: np.ndarray, z: np.ndarray,
     idx_y = (y - y_grid[0]) / dy
     idx_z = (z - z_grid[0]) / dz
 
-    i = np.clip(np.floor(idx_x).astype(int), 0, Nx - 2)
-    j = np.clip(np.floor(idx_y).astype(int), 0, Ny - 2)
-    k = np.clip(np.floor(idx_z).astype(int), 0, Nz - 2)
+    i = np.clip(np.floor(idx_x).astype(np.int64), 0, Nx - 2)
+    j = np.clip(np.floor(idx_y).astype(np.int64), 0, Ny - 2)
+    k = np.clip(np.floor(idx_z).astype(np.int64), 0, Nz - 2)
 
     tx = idx_x - i
     ty = idx_y - j

@@ -1,12 +1,24 @@
 # -*- coding: utf-8 -*-
 """
 Numerical integrators for kinetic particle motion (Leapfrog pusher).
+Supports Numba JIT acceleration with pure NumPy fallback.
 """
 
 import numpy as np
 from typing import Tuple, Union
 
+try:
+    from numba import njit
+    HAS_NUMBA = True
+except ImportError:
+    HAS_NUMBA = False
+    def njit(*args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator
 
+
+@njit(fastmath=True)
 def leapfrog_step_2d(x: np.ndarray, y: np.ndarray, vx: np.ndarray, vy: np.ndarray,
                      Ex: np.ndarray, Ey: np.ndarray, q_over_m: float, dt: float,
                      active: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
@@ -30,6 +42,7 @@ def leapfrog_step_2d(x: np.ndarray, y: np.ndarray, vx: np.ndarray, vy: np.ndarra
     return x_new, y_new, vx_new, vy_new
 
 
+@njit(fastmath=True)
 def leapfrog_step_3d(x: np.ndarray, y: np.ndarray, z: np.ndarray,
                      vx: np.ndarray, vy: np.ndarray, vz: np.ndarray,
                      Ex: np.ndarray, Ey: np.ndarray, Ez: np.ndarray,

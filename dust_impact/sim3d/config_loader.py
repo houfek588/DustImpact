@@ -12,14 +12,12 @@ from dust_impact.physics.constants import amu, e, m_e, eps_0
 from dust_impact.common.io import ensure_dir
 
 
+from dust_impact.common.config import BaseSimulationParams, BaseSimulationToggles
+
+
 @dataclass
-class SimulationToggles3D:
-    enable_spis_background_field: bool = True
-    enable_plasma_self_field: bool = True
-    enable_antenna_particle_collection: bool = True
-    enable_rc_circuit_response: bool = True
-    enable_debye_screening: bool = True
-    enable_antenna_bias_voltage: bool = True
+class SimulationToggles3D(BaseSimulationToggles):
+    pass
 
 
 @dataclass
@@ -54,18 +52,8 @@ class PlottingConfig3D:
 
 
 @dataclass
-class SimulationParams3D:
-    Vf: float = 0.0
-    Vf_antenne: float = 0.0
+class SimulationParams3D(BaseSimulationParams):
     vtk_files: VTKFilesConfig = field(default_factory=VTKFilesConfig)
-
-    ion_mass_amu: float = 27.0
-    impact_cloud_temperature_eV: float = 2.0
-    num_macroparticles: int = 20000
-
-    time_step_s: float = 2e-9
-    simulation_duration_s: float = 20e-6
-    impact_time_delay_s: float = 1e-6
 
     domain_half_length_x_m: float = 5.0
     domain_half_length_y_m: float = 5.0
@@ -78,36 +66,23 @@ class SimulationParams3D:
     grid_nodes_y: int = 35
     grid_nodes_z: int = 35
 
-    solar_wind_electron_temp_eV: float = 15.0
-    solar_wind_density_m3: float = 1e7
-
     antenna_capacitance_F: List[float] = field(default_factory=lambda: [2e-12, 2e-12, 2e-12])
     antenna_resistance_Ohm: List[float] = field(default_factory=lambda: [100e3, 100e3, 100e3])
     antenna_bias_voltage_V: List[float] = field(default_factory=lambda: [0.0, 0.0, 0.0])
     antenna_collection_efficiency: List[float] = field(default_factory=lambda: [0.8, 0.8, 0.8])
 
-    # Derived attributes
-    m_i: float = field(init=False)
-    debye_length: float = field(init=False)
-    q_macro: float = field(init=False)
-    steps: int = field(init=False)
-    time_array: np.ndarray = field(init=False)
+    # Derived attributes specific to 3D
     dx: float = field(init=False)
     dy: float = field(init=False)
     dz: float = field(init=False)
     x_grid: np.ndarray = field(init=False)
     y_grid: np.ndarray = field(init=False)
     z_grid: np.ndarray = field(init=False)
-    plot_stride: int = field(init=False)
-    save_interval: int = field(init=False)
 
-    # Convenience aliases
+    # 3D Convenience aliases
     Nx: int = field(init=False)
     Ny: int = field(init=False)
     Nz: int = field(init=False)
-    dt: float = field(init=False)
-    t_max: float = field(init=False)
-    t_delay: float = field(init=False)
     L_x: float = field(init=False)
     L_y: float = field(init=False)
     L_z: float = field(init=False)
@@ -116,15 +91,9 @@ class SimulationParams3D:
     R_ant: List[float] = field(init=False)
     V_bias: List[float] = field(init=False)
     collection_eff: List[float] = field(init=False)
-    N_particles: int = field(init=False)
-    T_dust_eV: float = field(init=False)
 
     def __post_init__(self):
-        self.m_i = self.ion_mass_amu * amu
-        self.debye_length = np.sqrt((eps_0 * self.solar_wind_electron_temp_eV * e) / (self.solar_wind_density_m3 * e ** 2))
-        self.q_macro = 50e-12 / self.num_macroparticles
-        self.steps = int(self.simulation_duration_s / self.time_step_s)
-        self.time_array = np.linspace(0, self.simulation_duration_s, self.steps)
+        self._init_base_derived_params()
 
         self.x_grid = np.linspace(-self.domain_half_length_x_m, self.domain_half_length_x_m, self.grid_nodes_x)
         self.y_grid = np.linspace(-self.domain_half_length_y_m, self.domain_half_length_y_m, self.grid_nodes_y)
@@ -137,9 +106,6 @@ class SimulationParams3D:
         self.Nx = self.grid_nodes_x
         self.Ny = self.grid_nodes_y
         self.Nz = self.grid_nodes_z
-        self.dt = self.time_step_s
-        self.t_max = self.simulation_duration_s
-        self.t_delay = self.impact_time_delay_s
         self.L_x = self.domain_half_length_x_m
         self.L_y = self.domain_half_length_y_m
         self.L_z = self.domain_half_length_z_m
@@ -148,11 +114,6 @@ class SimulationParams3D:
         self.R_ant = self.antenna_resistance_Ohm
         self.V_bias = self.antenna_bias_voltage_V
         self.collection_eff = self.antenna_collection_efficiency
-        self.N_particles = self.num_macroparticles
-        self.T_dust_eV = self.impact_cloud_temperature_eV
-
-        self.plot_stride = max(1, self.num_macroparticles // 1500)
-        self.save_interval = max(1, self.steps // 50)
 
 
 def setup_simulation_parameters_3d(Vf: float, Vf_antenne: float = 0.0, config_file: str = "config.json") -> Tuple[SimulationParams3D, SimulationToggles3D, PlottingConfig3D]:

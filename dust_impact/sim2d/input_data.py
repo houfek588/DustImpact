@@ -56,18 +56,16 @@ def calc_Ew_2d(x: np.ndarray, y: np.ndarray, x1: float, y1: float, x2: float, y2
     return Ewx, Ewy
 
 
+from dust_impact.common.config import BaseSimulationParams, BaseSimulationToggles
+
+
 # =============================================================================
 # NASTAVENÍ SIMULACE (2D)
 # =============================================================================
 
 @dataclass
-class SimulationToggles2D:
-    enable_spis_background_field: bool = True
-    enable_plasma_self_field: bool = True
-    enable_antenna_particle_collection: bool = True
-    enable_rc_circuit_response: bool = True
-    enable_debye_screening: bool = True
-    enable_antenna_bias_voltage: bool = True
+class SimulationToggles2D(BaseSimulationToggles):
+    pass
 
 
 @dataclass
@@ -95,18 +93,8 @@ class PlottingConfig:
 
 
 @dataclass
-class SimulationParams2D:
-    Vf: float = 0.0
-    Vf_antenne: float = 0.0
+class SimulationParams2D(BaseSimulationParams):
     antennas: List[Dict[str, float]] = field(default_factory=list)
-
-    ion_mass_amu: float = 27.0
-    impact_cloud_temperature_eV: float = 2.0
-    num_macroparticles: int = 15000
-
-    time_step_s: float = 1e-9
-    simulation_duration_s: float = 20e-6
-    impact_time_delay_s: float = 1e-6
 
     domain_length_x_m: float = 5.0
     domain_height_y_m: float = 2.5
@@ -116,47 +104,29 @@ class SimulationParams2D:
     grid_nodes_x: int = 100
     grid_nodes_y: int = 100
     A_sim: float = 1.0
-    solar_wind_electron_temp_eV: float = 15.0
-    solar_wind_density_m3: float = 1e7
 
-    # Derived internal parameters
-    m_i: float = field(init=False)
-    debye_length: float = field(init=False)
+    # Derived internal parameters specific to 2D
     v_th_e: float = field(init=False)
     v_th_i: float = field(init=False)
-    q_macro: float = field(init=False)
-    steps: int = field(init=False)
-    time_array: np.ndarray = field(init=False)
     dx: float = field(init=False)
     dy: float = field(init=False)
     x_grid: np.ndarray = field(init=False)
     y_grid: np.ndarray = field(init=False)
     X_mat: np.ndarray = field(init=False)
     Y_mat: np.ndarray = field(init=False)
-    plot_stride: int = field(init=False)
-    save_interval: int = field(init=False)
 
-    # Convenience aliases
+    # 2D Convenience aliases
     Nx: int = field(init=False)
     Ny: int = field(init=False)
-    dt: float = field(init=False)
-    t_max: float = field(init=False)
-    t_delay: float = field(init=False)
     L_domain: float = field(init=False)
     H_domain: float = field(init=False)
     y_impact: float = field(init=False)
-    N_particles: int = field(init=False)
-    T_dust_eV: float = field(init=False)
 
     def __post_init__(self):
-        self.m_i = self.ion_mass_amu * amu
-        self.debye_length = np.sqrt((eps_0 * self.solar_wind_electron_temp_eV * e) / (self.solar_wind_density_m3 * e ** 2))
+        self._init_base_derived_params()
+
         self.v_th_e = np.sqrt(2 * e * self.impact_cloud_temperature_eV / m_e)
         self.v_th_i = np.sqrt(2 * e * self.impact_cloud_temperature_eV / self.m_i)
-        self.q_macro = 50e-12 / self.num_macroparticles
-
-        self.steps = int(self.simulation_duration_s / self.time_step_s)
-        self.time_array = np.linspace(0, self.simulation_duration_s, self.steps)
 
         self.x_grid = np.linspace(0, self.domain_length_x_m, self.grid_nodes_x)
         self.y_grid = np.linspace(-self.domain_height_y_m, self.domain_height_y_m, self.grid_nodes_y)
@@ -165,14 +135,9 @@ class SimulationParams2D:
 
         self.Nx = self.grid_nodes_x
         self.Ny = self.grid_nodes_y
-        self.dt = self.time_step_s
-        self.t_max = self.simulation_duration_s
-        self.t_delay = self.impact_time_delay_s
         self.L_domain = self.domain_length_x_m
         self.H_domain = self.domain_height_y_m
         self.y_impact = self.impact_location_y_m
-        self.N_particles = self.num_macroparticles
-        self.T_dust_eV = self.impact_cloud_temperature_eV
 
         self.X_mat, self.Y_mat = np.meshgrid(self.x_grid, self.y_grid, indexing='ij')
         self.plot_stride = max(1, self.num_macroparticles // 1500)
