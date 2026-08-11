@@ -1,0 +1,69 @@
+{
+    "simulation_dimension": 3,
+    "toggles": {
+        "enable_spis_background_field": true,
+        "enable_plasma_self_field": true,
+        "enable_antenna_particle_collection": true,
+        "enable_rc_circuit_response": true,
+        "enable_debye_screening": true,
+        "enable_antenna_bias_voltage": true
+    },
+    "params": {
+        "vtk_files": {
+            "spis_background_potential_file": "inputs/spis_V_bg.vtk",
+            "spacecraft_weighting_file": "inputs/spis_Vw_body.vtk",
+            "antenna_weighting_files": [
+                "inputs/spis_Vw_ant1.vtk",
+                "inputs/spis_Vw_ant2.vtk",
+                "inputs/spis_Vw_ant3.vtk"
+            ]
+        },
+        "ion_mass_amu": 27.0,
+        "impact_cloud_temperature_eV": 2.0,
+        "solar_wind_electron_temp_eV": 15.0,
+        "solar_wind_density_m3": 10000000.0,
+        "num_macroparticles": 20000,
+        "time_step_s": 2e-09,
+        "simulation_duration_s": 2e-05,
+        "impact_time_delay_s": 1e-06,
+        "domain_half_length_x_m": 10.0,
+        "domain_half_length_y_m": 10.0,
+        "domain_half_length_z_m": 10.0,
+        "impact_location_xyz_m": [
+            -2.0,
+            2.0,
+            0.0
+        ],
+        "grid_nodes_x": 20,
+        "grid_nodes_y": 20,
+        "grid_nodes_z": 20,
+        "antenna_capacitance_F": [
+            2e-12,
+            2e-12,
+            2e-12
+        ],
+        "antenna_resistance_Ohm": [
+            100000.0,
+            100000.0,
+            100000.0
+        ],
+        "antenna_bias_voltage_V": [
+            8.0231,
+            8.0231,
+            8.0231
+        ],
+        "antenna_collection_efficiency": [
+            0.8,
+            0.8,
+            0.8
+        ]
+    },
+    "plotting": {
+        "run_physical_simulation": true,
+        "show_interactive_gui_windows": false,
+        "save_plots_to_disk": true,
+        "export_csv_time_series": false,
+        "output_npz_filepath": "outputs/out_vysledky.npz",
+        "output_csv_filepath": "outputs/out_vysledky_simulace.csv"
+    }
+}
