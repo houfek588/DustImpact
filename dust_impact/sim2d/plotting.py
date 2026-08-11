@@ -56,7 +56,7 @@ def _plot_currents_and_voltage(results: Dict[str, Any], params: SimulationParams
     ax1b.grid(True, linestyle=':')
     fig1.tight_layout()
 
-    if plot_cfg.save_plots:
+    if getattr(plot_cfg, 'save_plots_to_disk', getattr(plot_cfg, 'save_plots', False)):
         fig1.savefig(plot_cfg.file_currents, dpi=300, bbox_inches='tight')
         print(f"  [OK] Saved static plot: {plot_cfg.file_currents}")
 
@@ -110,7 +110,7 @@ def _animate_2d_fields(hist: Dict[str, Any], params: SimulationParams2D, plot_cf
     animations.append(anim)
     fig2.tight_layout()
 
-    if plot_cfg.save_plots:
+    if getattr(plot_cfg, 'save_plots_to_disk', getattr(plot_cfg, 'save_plots', False)):
         print(f"  -> Saving 2D fields animation...")
         anim.save(plot_cfg.file_fields_anim, writer='pillow', fps=15)
         print(f"  [OK] Saved: {plot_cfg.file_fields_anim}")
@@ -148,7 +148,7 @@ def _plot_weighting_field(params: SimulationParams2D, plot_cfg: PlottingConfig) 
     ax4.grid(True, linestyle=':', alpha=0.7)
     fig4.tight_layout()
 
-    if plot_cfg.save_plots:
+    if getattr(plot_cfg, 'save_plots_to_disk', getattr(plot_cfg, 'save_plots', False)):
         fig4.savefig(plot_cfg.file_weighting, dpi=300, bbox_inches='tight')
         print(f"  [OK] Saved static plot: {plot_cfg.file_weighting}")
 
@@ -197,7 +197,7 @@ def _animate_2d_particles(hist: Dict[str, Any], params: SimulationParams2D, plot
     animations.append(anim)
     fig3.tight_layout()
 
-    if plot_cfg.save_plots:
+    if getattr(plot_cfg, 'save_plots_to_disk', getattr(plot_cfg, 'save_plots', False)):
         print(f"  -> Saving 2D particle positions animation...")
         anim.save(plot_cfg.file_particles_anim, writer='pillow', fps=15)
         print(f"  [OK] Saved: {plot_cfg.file_particles_anim}")
@@ -249,7 +249,7 @@ def _animate_velocity_distribution(hist: Dict[str, Any], plot_cfg: PlottingConfi
     animations.append(anim)
     fig4.tight_layout()
 
-    if plot_cfg.save_plots:
+    if getattr(plot_cfg, 'save_plots_to_disk', getattr(plot_cfg, 'save_plots', False)):
         print(f"  -> Saving velocity histogram animation...")
         anim.save(plot_cfg.file_velocity_anim, writer='pillow', fps=15)
         print(f"  [OK] Saved: {plot_cfg.file_velocity_anim}")
@@ -328,17 +328,18 @@ def _animate_phase_space(hist: Dict[str, Any], params: SimulationParams2D, plot_
     animations.append(anim_ps)
     fig7.tight_layout()
 
-    if plot_cfg.save_plots:
+    if getattr(plot_cfg, 'save_plots_to_disk', getattr(plot_cfg, 'save_plots', False)):
         print(f"  -> Saving phase space animation...")
         anim_ps.save(plot_cfg.file_phase_space, writer='pillow', fps=15)
         print(f"  [OK] Saved: {plot_cfg.file_phase_space}")
 
 
 def _export_data_csv(results: Dict[str, Any], params: SimulationParams2D, plot_cfg: PlottingConfig) -> None:
-    if not plot_cfg.export_data_csv:
+    if not getattr(plot_cfg, 'export_csv_time_series', getattr(plot_cfg, 'export_data_csv', False)):
         return
 
     print("  -> Exporting macroscopic data to CSV format...")
+    csv_file = getattr(plot_cfg, 'output_csv_filepath', getattr(plot_cfg, 'file_csv', 'outputs/out_2d_vysledky_simulace.csv'))
     try:
         header_cols = ["Time_s"]
         cols = [params.time_array]
@@ -353,8 +354,8 @@ def _export_data_csv(results: Dict[str, Any], params: SimulationParams2D, plot_c
 
         export_matrix = np.column_stack(cols)
         header = ",".join(header_cols)
-        np.savetxt(plot_cfg.file_csv, export_matrix, delimiter=",", header=header, comments="")
-        print(f"  [OK] Data successfully saved to: {plot_cfg.file_csv}")
+        np.savetxt(csv_file, export_matrix, delimiter=",", header=header, comments="")
+        print(f"  [OK] Data successfully saved to: {csv_file}")
     except Exception as e:
         print(f"  [ERROR] Failed to export CSV: {e}")
 

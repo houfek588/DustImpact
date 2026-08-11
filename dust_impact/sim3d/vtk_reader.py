@@ -253,4 +253,18 @@ def load_and_interpolate_vtk(params: SimulationParams3D):
         Ewy_list.append(Ewy)
         Ewz_list.append(Ewz)
 
+    # Automaticky načteme přesný rovnovážný potenciál antén přímo z VTK pozadí ze SPISu
+    spis_v_bias = []
+    for i, mask in enumerate(antenna_masks_3d):
+        if np.any(mask) and not np.isnan(V_bg_grid[mask]).all():
+            v_ant_mean = float(np.nanmean(V_bg_grid[mask]))
+            spis_v_bias.append(v_ant_mean)
+            print(f"  -> Anténa {i + 1}: Rovnovážný potenciál načten přímo ze SPIS VTK: {v_ant_mean:.3f} V")
+        elif i < len(params.antenna_bias_voltage_V):
+            spis_v_bias.append(params.antenna_bias_voltage_V[i])
+
+    if spis_v_bias:
+        params.antenna_bias_voltage_V = spis_v_bias
+        params.V_bias = spis_v_bias
+
     return V_bg_grid, Vw_grids, Ex_bg, Ey_bg, Ez_bg, Ewx_list, Ewy_list, Ewz_list, antenna_masks_3d, spacecraft_mask_3d

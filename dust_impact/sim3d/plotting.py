@@ -48,7 +48,7 @@ def _plot_currents_and_voltage(results: Dict, params: SimulationParams3D, plot_c
     ax1b.set_ylabel("Voltage [mV]")
     ax1b.set_xlabel("Time [µs]")
     fig1.tight_layout()
-    if plot_cfg.save_plots: fig1.savefig(plot_cfg.file_currents, dpi=300, bbox_inches='tight')
+    if getattr(plot_cfg, 'save_plots_to_disk', getattr(plot_cfg, 'save_plots', False)): fig1.savefig(plot_cfg.file_currents, dpi=300, bbox_inches='tight')
 
 
 def _animate_yz_fields_slice(hist: Dict, params: SimulationParams3D, plot_cfg: PlottingConfig3D, anims: list,
@@ -101,7 +101,7 @@ def _animate_yz_fields_slice(hist: Dict, params: SimulationParams3D, plot_cfg: P
 
     anim = animation.FuncAnimation(fig2, update, frames=len(hist['t']), interval=100, blit=False)
     anims.append(anim)
-    if plot_cfg.save_plots: anim.save(plot_cfg.file_fields_anim, writer='pillow', fps=15)
+    if getattr(plot_cfg, 'save_plots_to_disk', getattr(plot_cfg, 'save_plots', False)): anim.save(plot_cfg.file_fields_anim, writer='pillow', fps=15)
 
 
 def _animate_yz_particles_slice(hist: Dict, params: SimulationParams3D, plot_cfg: PlottingConfig3D, anims: list,
@@ -159,7 +159,7 @@ def _animate_yz_particles_slice(hist: Dict, params: SimulationParams3D, plot_cfg
 
     anim = animation.FuncAnimation(fig_slice, update, frames=len(hist['t']), interval=100, blit=False)
     anims.append(anim)
-    if plot_cfg.save_plots:
+    if getattr(plot_cfg, 'save_plots_to_disk', getattr(plot_cfg, 'save_plots', False)):
         anim.save(plot_cfg.file_particles_anim.replace('.gif', '_yz.gif'), writer='pillow', fps=15)
 
 
@@ -214,7 +214,7 @@ def _animate_3d_particles(hist: Dict, params: SimulationParams3D, plot_cfg: Plot
 
     anim = animation.FuncAnimation(fig3, update, frames=len(hist['t']), interval=100, blit=False)
     anims.append(anim)
-    if plot_cfg.save_plots: anim.save(plot_cfg.file_particles_anim, writer='pillow', fps=15)
+    if getattr(plot_cfg, 'save_plots_to_disk', getattr(plot_cfg, 'save_plots', False)): anim.save(plot_cfg.file_particles_anim, writer='pillow', fps=15)
 
 
 def _animate_velocity_distribution(hist: Dict[str, Any], plot_cfg: PlottingConfig3D, anims: list) -> None:
@@ -254,11 +254,12 @@ def _animate_velocity_distribution(hist: Dict[str, Any], plot_cfg: PlottingConfi
 
     anim = animation.FuncAnimation(fig4, update, frames=len(hist['t']), interval=100, blit=False)
     anims.append(anim)
-    if plot_cfg.save_plots: anim.save(plot_cfg.file_velocity_anim, writer='pillow', fps=15)
+    if getattr(plot_cfg, 'save_plots_to_disk', getattr(plot_cfg, 'save_plots', False)): anim.save(plot_cfg.file_velocity_anim, writer='pillow', fps=15)
 
 
 def _export_csv(results: Dict, params: SimulationParams3D, plot_cfg: PlottingConfig3D):
-    if not plot_cfg.export_data_csv: return
+    if not getattr(plot_cfg, 'export_csv_time_series', getattr(plot_cfg, 'export_data_csv', False)): return
+    csv_file = getattr(plot_cfg, 'output_csv_filepath', getattr(plot_cfg, 'file_csv', 'outputs/out_3d_vysledky_simulace.csv'))
     try:
         header = ["Time_s"]
         cols = [params.time_array]
@@ -266,8 +267,8 @@ def _export_csv(results: Dict, params: SimulationParams3D, plot_cfg: PlottingCon
             header.extend([f"I_ind_{a_idx + 1}_A", f"I_col_{a_idx + 1}_A", f"V_{a_idx + 1}_V"])
             cols.extend(
                 [results['smooth_induced'][a_idx], results['smooth_collected'][a_idx], results['voltage_ant'][a_idx]])
-        np.savetxt(plot_cfg.file_csv, np.column_stack(cols), delimiter=",", header=",".join(header), comments="")
-        print(f"  [OK] CSV saved: {plot_cfg.file_csv}")
+        np.savetxt(csv_file, np.column_stack(cols), delimiter=",", header=",".join(header), comments="")
+        print(f"  [OK] CSV saved: {csv_file}")
     except Exception as e:
         print(f"  [ERROR] CSV export failed: {e}")
 
