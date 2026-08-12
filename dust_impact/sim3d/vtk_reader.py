@@ -79,31 +79,54 @@ def _interpolate_field_3d(x, y, z, field_x, field_y, field_z, params: Simulation
     return interp_comp(field_x), interp_comp(field_y), interp_comp(field_z)
 
 
-def _compute_impact_intersection_and_normal(params: SimulationParams3D, Vw_body: np.ndarray, spacecraft_mask_3d: np.ndarray):
-    P_start = np.array(params.impact_pos, dtype=float)
-    P_target = np.array([0.0, 0.0, 0.0], dtype=float)
-    direction = P_target - P_start
-    dist = np.linalg.norm(direction)
+def _compute_impact_intersection_and_normal(params: SimulationParams3D, Vw_body: np.ndarray, spacecraft_mask_3d: np.ndarray, mesh_body=None):
+    P_start = np.array(params.impact_location_xyz_m if hasattr(params, 'impact_location_xyz_m') else params.impact_pos, dtype=float)
+    v_dir = np.array(getattr(params, 'impact_direction_vector', [0.0, 0.0, 0.0]), dtype=float)
+    v_norm = np.linalg.norm(v_dir)
 
-    if dist < 1e-6:
-        print("[Upozornění] Zadaná pozice dopadu impact_pos je v počátku (0,0,0). Nelze provést ray casting.")
+    # 1. Zero direction vector [0,0,0]: do not calculate intersection, set impact_pos directly to P_start
+    if v_norm < 1e-9:
+        print(f"  -> Vektor pohybu prachu je nulový {list(v_dir)}. Bod dopadu je stanoven přímo ve výchozím místě {list(P_start)}.")
+        params.impact_pos = list(P_start)
+
+        Ex_body, Ey_body, Ez_body = np.gradient(-Vw_body, params.dx, params.dy, params.dz)
+        gx, gy, gz = _interpolate_field_3d(P_start[0], P_start[1], P_start[2], Ex_body, Ey_body, Ez_body, params)
+        normal = np.array([gx, gy, gz], dtype=float)
+        norm_n = np.linalg.norm(normal)
+        if norm_n > 1e-6:
+            normal /= norm_n
+        else:
+            norm_p = np.linalg.norm(P_start)
+            normal = P_start / norm_p if norm_p > 1e-6 else np.array([-0.7071, 0.7071, 0.0])
+        params.impact_normal = list(normal)
         return
 
-    dir_u = direction / dist
-    step_size = 0.25 * min(params.dx, params.dy, params.dz)
-    steps = int(dist / step_size)
-
-    i_start = int(round((P_start[0] - params.x_grid[0]) / params.dx))
-    j_start = int(round((P_start[1] - params.y_grid[0]) / params.dy))
-    k_start = int(round((P_start[2] - params.z_grid[0]) / params.dz))
-
+    # 2. Non-zero direction vector: calculate ray intersection with spacecraft surface
+    dir_u = v_dir / v_norm
     intersection_point = None
-    if 0 <= i_start < params.Nx and 0 <= j_start < params.Ny and 0 <= k_start < params.Nz:
-        if spacecraft_mask_3d[i_start, j_start, k_start]:
-            print(f"  -> Zadaná pozice dopadu {params.impact_pos} je již uvnitř masky sondy.")
-            intersection_point = P_start
+    normal_vector = None
 
+    # Analytical ray_trace via PyVista mesh_body if available
+    if mesh_body is not None:
+        try:
+            P_target = P_start + 100.0 * dir_u
+            points, ind_faces = mesh_body.ray_trace(P_start, P_target)
+            if len(points) > 0:
+                intersection_point = points[0]
+                try:
+                    norm = mesh_body.face_normals[ind_faces[0]]
+                    normal_vector = norm / np.linalg.norm(norm)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    # Grid step ray-casting fallback if PyVista ray_trace didn't return point
     if intersection_point is None:
+        step_size = 0.25 * min(params.dx, params.dy, params.dz)
+        max_dist = 2.0 * max(params.L_x, params.L_y, params.L_z)
+        steps = int(max_dist / step_size)
+
         for step in range(steps):
             curr_pos = P_start + step * step_size * dir_u
             i = int(round((curr_pos[0] - params.x_grid[0]) / params.dx))
@@ -115,32 +138,31 @@ def _compute_impact_intersection_and_normal(params: SimulationParams3D, Vw_body:
                     intersection_point = curr_pos
                     break
 
+    # If NO intersection exists along the trajectory: raise error message!
     if intersection_point is None:
-        intersection_point = P_start
-        print(f"  -> Průsečík s tělem sondy nebyl nalezen. Používám původní zadanou pozici {params.impact_pos}")
+        err_msg = (
+            f"\n[CHYBA] Nelze spočítat bod dopadu! Prachová částice z výchozího místa {list(P_start)} "
+            f"s vektorem pohybu {list(v_dir)} neprotíná povrch sondy!"
+        )
+        print(err_msg)
+        raise ValueError(err_msg)
 
-    Ex_body, Ey_body, Ez_body = np.gradient(-Vw_body, params.dx, params.dy, params.dz)
-
-    gx, gy, gz = _interpolate_field_3d(intersection_point[0], intersection_point[1], intersection_point[2],
-                                       Ex_body, Ey_body, Ez_body, params)
-
-    normal = np.array([gx, gy, gz], dtype=float)
-    norm_n = np.linalg.norm(normal)
-    if norm_n > 1e-6:
-        normal /= norm_n
-    else:
-        normal = intersection_point.copy()
-        norm_ip = np.linalg.norm(normal)
-        if norm_ip > 1e-6:
-            normal /= norm_ip
+    if normal_vector is None:
+        Ex_body, Ey_body, Ez_body = np.gradient(-Vw_body, params.dx, params.dy, params.dz)
+        gx, gy, gz = _interpolate_field_3d(intersection_point[0], intersection_point[1], intersection_point[2],
+                                           Ex_body, Ey_body, Ez_body, params)
+        normal = np.array([gx, gy, gz], dtype=float)
+        norm_n = np.linalg.norm(normal)
+        if norm_n > 1e-6:
+            normal_vector = normal / norm_n
         else:
-            normal = np.array([-0.7071, 0.7071, 0.0])
+            normal_vector = np.array([-0.7071, 0.7071, 0.0])
 
     params.impact_pos = list(intersection_point)
-    params.impact_normal = list(normal)
+    params.impact_normal = list(normal_vector)
 
-    print(f"  -> Skutečný bod dopadu na povrchu sondy: {params.impact_pos}")
-    print(f"  -> Automaticky spočítaná normála v místě dopadu: {params.impact_normal}")
+    print(f"  -> Skutečný vypočtený bod dopadu na povrchu sondy: {params.impact_pos}")
+    print(f"  -> Vypočtená normála v místě dopadu: {params.impact_normal}")
 
 
 def _generate_synthetic_fields_3d(params: SimulationParams3D):
@@ -213,13 +235,25 @@ def load_and_interpolate_vtk(params: SimulationParams3D):
         sampled_body = pic_grid.sample(mesh_body)
         pot_body = _extract_potential_from_mesh(sampled_body, sc_file)
         Vw_body = pot_body.reshape((Nx, Ny, Nz))
-        spacecraft_mask_3d = detect_metal_mask_3d(Vw_body, dx_min)
-        print(f"  -> Geometrie tělesa sondy načtena z {sc_file}.")
+
+        # 1. Spacecraft Surface Mask via PyVista select_enclosed_points
+        try:
+            body_keys = list(mesh_body.point_data.keys())
+            key_body = body_keys[0] if body_keys else 'Potential'
+            contour_body = mesh_body.contour([0.5], scalars=key_body)
+            enclosed_body = pic_grid.select_enclosed_points(contour_body, tolerance=1e-5)
+            spacecraft_mask_3d = enclosed_body['SelectedPoints'].view(bool).reshape((Nx, Ny, Nz))
+            if np.sum(spacecraft_mask_3d) == 0:
+                spacecraft_mask_3d = detect_metal_mask_3d(Vw_body, dx_min)
+        except Exception:
+            spacecraft_mask_3d = detect_metal_mask_3d(Vw_body, dx_min)
+
+        print(f"  -> Geometrie tělesa sondy načtena z {sc_file} (PyVista select_enclosed_points).")
     except (FileNotFoundError, KeyError, Exception) as e:
         print(f"[UPOZORNĚNÍ] Chyba při načítání VTK ({e}). Přecházím na syntetická pole.")
         return _generate_synthetic_fields_3d(params)
 
-    _compute_impact_intersection_and_normal(params, Vw_body, spacecraft_mask_3d)
+    _compute_impact_intersection_and_normal(params, Vw_body, spacecraft_mask_3d, mesh_body)
 
     Ex_bg, Ey_bg, Ez_bg = np.gradient(-V_bg_grid, params.dx, params.dy, params.dz)
     Ex_bg[spacecraft_mask_3d] = 0.0
@@ -229,6 +263,9 @@ def load_and_interpolate_vtk(params: SimulationParams3D):
     Vw_grids = []
     Ewx_list, Ewy_list, Ewz_list = [], [], []
     antenna_masks_3d = []
+
+    X_mat, Y_mat, Z_mat = np.meshgrid(params.x_grid, params.y_grid, params.z_grid, indexing='ij')
+    all_grid_coords = np.column_stack([X_mat.ravel(), Y_mat.ravel(), Z_mat.ravel()])
 
     for i, vtk_file in enumerate(ant_files):
         try:
@@ -242,7 +279,21 @@ def load_and_interpolate_vtk(params: SimulationParams3D):
 
         Vw_grids.append(Vw)
         Ewx, Ewy, Ewz = np.gradient(-Vw, params.dx, params.dy, params.dz)
-        mask = detect_metal_mask_3d(Vw, dx_min)
+
+        # 2. Thin Antenna Mask via Distance Field from wire axis
+        wire_indices = np.where(Vw >= 0.2)
+        if len(wire_indices[0]) > 0:
+            wire_coords = np.column_stack([
+                params.x_grid[wire_indices[0]],
+                params.y_grid[wire_indices[1]],
+                params.z_grid[wire_indices[2]]
+            ])
+            dists = np.min(np.linalg.norm(all_grid_coords[:, None, :] - wire_coords[None, :, :], axis=2), axis=1)
+            r_ant = max(0.15, 0.5 * dx_min)
+            mask = (dists.reshape((Nx, Ny, Nz)) <= r_ant)
+        else:
+            mask = detect_metal_mask_3d(Vw, dx_min)
+
         antenna_masks_3d.append(mask)
 
         Ewx[mask] = 0.0
@@ -253,15 +304,39 @@ def load_and_interpolate_vtk(params: SimulationParams3D):
         Ewy_list.append(Ewy)
         Ewz_list.append(Ewz)
 
-    # Automaticky načteme přesný rovnovážný potenciál antén přímo z VTK pozadí ze SPISu
+    # Automaticky načteme přesný rovnovážný potenciál antén přímo z originální VTK sítě SPISu (nezávisle na rozlišení mřížky)
     spis_v_bias = []
-    for i, mask in enumerate(antenna_masks_3d):
-        if np.any(mask) and not np.isnan(V_bg_grid[mask]).all():
-            v_ant_mean = float(np.nanmean(V_bg_grid[mask]))
-            spis_v_bias.append(v_ant_mean)
-            print(f"  -> Anténa {i + 1}: Rovnovážný potenciál načten přímo ze SPIS VTK: {v_ant_mean:.3f} V")
-        elif i < len(params.antenna_bias_voltage_V):
-            spis_v_bias.append(params.antenna_bias_voltage_V[i])
+    bg_keys = list(mesh_bg.point_data.keys())
+    key_bg = bg_keys[0] if bg_keys else 'Potential'
+
+    for i, vtk_file in enumerate(ant_files):
+        extracted = False
+        try:
+            mesh_w = _read_mesh(vtk_file)
+            w_keys = list(mesh_w.point_data.keys())
+            key_w = w_keys[0] if w_keys else 'Potential'
+
+            vw_pts = mesh_w.point_data[key_w]
+            v_max_w = np.nanmax(vw_pts)
+
+            if v_max_w > 0:
+                surf_pts_idx = np.where(vw_pts >= 0.8 * v_max_w)[0]
+                if len(surf_pts_idx) > 0 and key_bg in mesh_bg.point_data:
+                    v_bg_surf = mesh_bg.point_data[key_bg][surf_pts_idx]
+                    v_ant_exact = float(np.nanmean(v_bg_surf))
+                    spis_v_bias.append(v_ant_exact)
+                    print(f"  -> Anténa {i + 1}: Rovnovážný potenciál načten přímo ze SPIS VTK: {v_ant_exact:.3f} V")
+                    extracted = True
+        except Exception:
+            pass
+
+        if not extracted:
+            if i < len(Vw_grids) and np.any(antenna_masks_3d[i]):
+                v_ant_val = float(np.nanmax(V_bg_grid[antenna_masks_3d[i]]))
+                spis_v_bias.append(v_ant_val)
+                print(f"  -> Anténa {i + 1}: Rovnovážný potenciál načten z mřížky: {v_ant_val:.3f} V")
+            elif i < len(params.antenna_bias_voltage_V):
+                spis_v_bias.append(params.antenna_bias_voltage_V[i])
 
     if spis_v_bias:
         params.antenna_bias_voltage_V = spis_v_bias

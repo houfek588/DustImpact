@@ -34,6 +34,11 @@
             2.0,
             0.0
         ],
+        "impact_direction_vector": [
+            1.0,
+            -1.0,
+            0.0
+        ],
         "grid_nodes_x": 20,
         "grid_nodes_y": 20,
         "grid_nodes_z": 20,

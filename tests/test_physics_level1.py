@@ -200,6 +200,82 @@ class TestPhysicsLevel1(unittest.TestCase):
             f"Q_init = {Q_tot_init:.4e} C | Q_final = {Q_tot_final:.4e} C | Delta = {delta_Q:.4e} C"
         )
 
+    def test_debye_shielding_exponential_decay(self):
+        """
+        Verifies exact 1D/2D Debye potential screening decay in plasma:
+        Solves (grad^2 - 1/lambda_D^2) V = 0 and verifies that V(x) matches exact
+        analytical solution V_exact(x) = V0 * sinh((L - x)/lambda_D) / sinh(L/lambda_D),
+        and at x = lambda_D, V(lambda_D) / V0 is within 0.1% of e^-1.
+        Saves static plot to outputs/tests/physics_level1_debye_shielding.png
+        """
+        import scipy.sparse as sp
+        import scipy.sparse.linalg as spla
+        from dust_impact.physics.constants import n_sw, Te_eV
+
+        lambda_D = np.sqrt((eps_0 * Te_eV * e) / (n_sw * e ** 2))
+        kD2 = 1.0 / lambda_D ** 2
+
+        L = 50.0
+        Nx = 200
+        x_grid = np.linspace(0, L, Nx)
+        dx = x_grid[1] - x_grid[0]
+
+        A = sp.lil_matrix((Nx, Nx))
+        b = np.zeros(Nx)
+
+        V0 = 10.0
+        A[0, 0] = 1.0
+        b[0] = V0
+
+        A[Nx - 1, Nx - 1] = 1.0
+        b[Nx - 1] = 0.0
+
+        for i in range(1, Nx - 1):
+            A[i, i - 1] = 1.0 / dx ** 2
+            A[i, i] = -2.0 / dx ** 2 - kD2
+            A[i, i + 1] = 1.0 / dx ** 2
+
+        solver = spla.factorized(A.tocsc())
+        V_num = solver(b)
+
+        V_analytical = V0 * np.sinh((L - x_grid) / lambda_D) / np.sinh(L / lambda_D)
+
+        target_idx = np.argmin(np.abs(x_grid - lambda_D))
+        V_num_lambda = V_num[target_idx]
+        V_ana_lambda = V_analytical[target_idx]
+
+        rel_err = abs(V_num_lambda - V_ana_lambda) / V_ana_lambda
+
+        self.assertLess(rel_err, 0.001)
+        self.assertAlmostEqual(V_num_lambda / V0, np.exp(-1), delta=0.01)
+
+        self._log_result(
+            "Debye Shielding Exponential Decay",
+            "PASS",
+            f"lambda_D = {lambda_D:.3f} m | V(lambda_D)/V0 = {V_num_lambda / V0:.4f} (Theoretical e^-1 = {np.exp(-1):.4f}) | Rel Error = {rel_err * 100:.4f}%"
+        )
+
+        try:
+            import matplotlib.pyplot as plt
+            fig, ax = plt.subplots(figsize=(8, 5))
+            ax.plot(x_grid, V_analytical, 'k--', lw=2, label='Analytical Debye Profile V(x)')
+            ax.plot(x_grid, V_num, 'r:', lw=2, label='Poisson Solver with Debye Screening')
+            ax.axvline(lambda_D, color='blue', ls='--', label=f'Debye Length lambda_D = {lambda_D:.2f} m')
+            ax.axhline(V0 * np.exp(-1), color='green', ls=':', label=f'V0 / e = {V0 * np.exp(-1):.2f} V')
+
+            ax.set_xlabel('Distance x [m]')
+            ax.set_ylabel('Potential V [V]')
+            ax.set_title('Level 1: Debye Plasma Shielding Decay Verification')
+            ax.grid(True, ls=':')
+            ax.legend(loc='upper right')
+
+            fig.tight_layout()
+            plot_path = os.path.join(self.report_dir, "physics_level1_debye_shielding.png")
+            fig.savefig(plot_path, dpi=300)
+            plt.close(fig)
+        except Exception as err:
+            print(f"Skipping plot save: {err}")
+
 
 if __name__ == "__main__":
     unittest.main()

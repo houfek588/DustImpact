@@ -60,6 +60,7 @@ class SimulationParams3D(BaseSimulationParams):
     domain_half_length_z_m: float = 5.0
 
     impact_location_xyz_m: List[float] = field(default_factory=lambda: [-2.0, 2.0, 0.0])
+    impact_direction_vector: List[float] = field(default_factory=lambda: [0.0, 0.0, 0.0])
     impact_normal: List[float] = field(default_factory=lambda: [-0.7071, 0.7071, 0.0])
 
     grid_nodes_x: int = 35

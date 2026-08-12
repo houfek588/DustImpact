@@ -251,7 +251,7 @@ class DustImpactSimulation3D:
         ind_currs = np.zeros(self.num_antennas)
         if not np.any(active): return col_currs, ind_currs
 
-        x_act, y_act, z_act = x[active], y[active], z[active]
+        x_act, y_act, z_act = x[active].copy(), y[active].copy(), z[active].copy()
         ax, ay, az = self._get_accel(x_act, y_act, z_act, mass, phys_charge)
 
         # Symplectic 3D Leapfrog pusher via numerics.pushers
@@ -273,11 +273,21 @@ class DustImpactSimulation3D:
             active[:] = new_active
             return col_currs, ind_currs
 
-        idx_x = np.clip(((x[new_active] - self.p.x_grid[0]) / self.p.dx).astype(int), 0, self.p.Nx - 1)
-        idx_y = np.clip(((y[new_active] - self.p.y_grid[0]) / self.p.dy).astype(int), 0, self.p.Ny - 1)
-        idx_z = np.clip(((z[new_active] - self.p.z_grid[0]) / self.p.dz).astype(int), 0, self.p.Nz - 1)
+        # Continuous Collision Detection (CCD) via trajectory segment midpoint sampling
+        x_new, y_new, z_new = x[new_active], y[new_active], z[new_active]
+        x_mid = 0.5 * (x_act + x_new)
+        y_mid = 0.5 * (y_act + y_new)
+        z_mid = 0.5 * (z_act + z_new)
 
-        hit_sc = self.spacecraft_mask_3d[idx_x, idx_y, idx_z]
+        idx_x_new = np.clip(((x_new - self.p.x_grid[0]) / self.p.dx).astype(int), 0, self.p.Nx - 1)
+        idx_y_new = np.clip(((y_new - self.p.y_grid[0]) / self.p.dy).astype(int), 0, self.p.Ny - 1)
+        idx_z_new = np.clip(((z_new - self.p.z_grid[0]) / self.p.dz).astype(int), 0, self.p.Nz - 1)
+
+        idx_x_mid = np.clip(((x_mid - self.p.x_grid[0]) / self.p.dx).astype(int), 0, self.p.Nx - 1)
+        idx_y_mid = np.clip(((y_mid - self.p.y_grid[0]) / self.p.dy).astype(int), 0, self.p.Ny - 1)
+        idx_z_mid = np.clip(((z_mid - self.p.z_grid[0]) / self.p.dz).astype(int), 0, self.p.Nz - 1)
+
+        hit_sc = self.spacecraft_mask_3d[idx_x_new, idx_y_new, idx_z_new] | self.spacecraft_mask_3d[idx_x_mid, idx_y_mid, idx_z_mid]
         global_active_indices = np.where(new_active)[0]
         destroyed_by_sc = global_active_indices[hit_sc]
         new_active[destroyed_by_sc] = False
