@@ -5,6 +5,7 @@ Main runner for 3D PIC Simulation using self-explanatory parameters.
 """
 
 import argparse
+import time
 from dust_impact.physics.charging import calculate_equilibrium_potential, ENV_EARTH, MAT_ALUMINIUM, MAT_ALUMINIUM_ANTENNE
 from dust_impact.common.io import save_results_npz, load_results_npz
 from dust_impact.sim3d.config_loader import setup_simulation_parameters_3d
@@ -36,11 +37,14 @@ def run_3d_simulation(config_file: str = "config.json", visualize_results: bool 
 
     if PROVEST_VYPOCET:
         print("\n=== KROK 2: Spouštím 3D fyzikální PIC simulaci ===")
+        t_pic_start = time.perf_counter()
         sim = DustImpactSimulation3D(
             sim_params, sim_toggles,
             V_bg, Vw_grids, Ex_bg, Ey_bg, Ez_bg, Ewx, Ewy, Ewz, ant_masks, sc_mask
         )
         sim_results = sim.run()
+        t_pic_elapsed = time.perf_counter() - t_pic_start
+        print(f"  [OK] 3D PIC výpočet dokončen za {t_pic_elapsed:.2f} s")
 
         print("\n=== KROK 3: Ukládání fyzikálních dat na disk ===")
         save_results_npz(sim_results, plot_config.output_npz_filepath)

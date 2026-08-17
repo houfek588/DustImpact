@@ -54,7 +54,7 @@ class BaseSimulationParams:
         self.m_i = self.ion_mass_amu * amu
         self.debye_length = np.sqrt((eps_0 * self.solar_wind_electron_temp_eV * e) / (self.solar_wind_density_m3 * e ** 2))
         self.q_macro = 50e-12 / self.num_macroparticles
-        self.steps = int(self.simulation_duration_s / self.time_step_s)
+        self.steps = int(round(self.simulation_duration_s / self.time_step_s))
         self.time_array = np.linspace(0, self.simulation_duration_s, self.steps)
 
         self.N_particles = self.num_macroparticles

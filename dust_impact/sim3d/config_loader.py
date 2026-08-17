@@ -71,6 +71,8 @@ class SimulationParams3D(BaseSimulationParams):
     antenna_resistance_Ohm: List[float] = field(default_factory=lambda: [100e3, 100e3, 100e3])
     antenna_bias_voltage_V: List[float] = field(default_factory=lambda: [0.0, 0.0, 0.0])
     antenna_collection_efficiency: List[float] = field(default_factory=lambda: [0.8, 0.8, 0.8])
+    antenna_mask_radius_m: float = 0.15
+    antenna_weighting_threshold: float = 0.2
 
     # Derived attributes specific to 3D
     dx: float = field(init=False)

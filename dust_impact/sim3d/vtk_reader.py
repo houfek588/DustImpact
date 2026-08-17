@@ -11,6 +11,8 @@ try:
 except ImportError:
     HAS_PYVISTA = False
 
+from scipy.spatial import cKDTree
+
 from dust_impact.sim3d.config_loader import SimulationParams3D
 from dust_impact.sim3d.voxelizer import detect_metal_mask_3d
 
@@ -281,15 +283,18 @@ def load_and_interpolate_vtk(params: SimulationParams3D):
         Ewx, Ewy, Ewz = np.gradient(-Vw, params.dx, params.dy, params.dz)
 
         # 2. Thin Antenna Mask via Distance Field from wire axis
-        wire_indices = np.where(Vw >= 0.2)
+        w_threshold = getattr(params, 'antenna_weighting_threshold', 0.2)
+        wire_indices = np.where(Vw >= w_threshold)
         if len(wire_indices[0]) > 0:
             wire_coords = np.column_stack([
                 params.x_grid[wire_indices[0]],
                 params.y_grid[wire_indices[1]],
                 params.z_grid[wire_indices[2]]
             ])
-            dists = np.min(np.linalg.norm(all_grid_coords[:, None, :] - wire_coords[None, :, :], axis=2), axis=1)
-            r_ant = max(0.15, 0.5 * dx_min)
+            tree = cKDTree(wire_coords)
+            dists, _ = tree.query(all_grid_coords, k=1)
+            configured_r = getattr(params, 'antenna_mask_radius_m', 0.15)
+            r_ant = max(configured_r, 0.5 * dx_min)
             mask = (dists.reshape((Nx, Ny, Nz)) <= r_ant)
         else:
             mask = detect_metal_mask_3d(Vw, dx_min)

@@ -286,7 +286,13 @@ class DustImpactSimulation2D:
             if step % self.p.save_interval == 0 or step == self.p.steps - 1:
                 self._save_history(step * self.p.dt)
 
-        kernel = np.ones(100) / 100
+            if step % (max(1, self.p.steps // 10)) == 0:
+                print(f"  -> Průběh: {int(step / self.p.steps * 100)}% ({step}/{self.p.steps} kroků)")
+
+        print(f"  -> Průběh: 100% ({self.p.steps}/{self.p.steps} kroků)")
+
+        k_size = min(100, max(1, self.p.steps))
+        kernel = np.ones(k_size) / k_size
         res = {
             'smooth_induced': [],
             'smooth_collected': [],

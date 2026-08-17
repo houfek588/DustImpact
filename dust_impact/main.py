@@ -13,6 +13,10 @@ from dust_impact.sim2d.runner import run_2d_simulation
 from dust_impact.sim3d.runner import run_3d_simulation
 
 
+import time
+from datetime import datetime
+
+
 def main(config_file: str = "config.json", dim_override: int = None, visualize_results: bool = None):
     """
     Unified simulation launcher for DustImpact.
@@ -26,6 +30,9 @@ def main(config_file: str = "config.json", dim_override: int = None, visualize_r
     visualize_results : bool, optional
         Override whether to render plots/visualizations.
     """
+    start_dt = datetime.now()
+    t_start = time.perf_counter()
+
     if not os.path.exists(config_file):
         alt_config = os.path.join("inputs", "config.json")
         if os.path.exists(alt_config):
@@ -46,6 +53,7 @@ def main(config_file: str = "config.json", dim_override: int = None, visualize_r
     print("=====================================================")
     print(f"   DUSTIMPACT SIMULATOR (Dimenze výpočtu: {dim}D)")
     print(f"   Konfigurační soubor: {config_file}")
+    print(f"   Čas zahájení: {start_dt.strftime('%Y-%m-%d %H:%M:%S')}")
     if visualize_results is not None:
         print(f"   Vizualizace výsledků: {'ZAPNUTA' if visualize_results else 'VYPNUTA'}")
     print("=====================================================\n")
@@ -56,6 +64,16 @@ def main(config_file: str = "config.json", dim_override: int = None, visualize_r
         run_3d_simulation(config_file=config_file, visualize_results=visualize_results)
     else:
         raise ValueError(f"Podporované dimenze výpočtu jsou pouze 2 nebo 3 (zadáno: {dim}).")
+
+    end_dt = datetime.now()
+    elapsed_sec = time.perf_counter() - t_start
+    print("\n=====================================================")
+    print(f"   Čas dokončení: {end_dt.strftime('%Y-%m-%d %H:%M:%S')}")
+    if elapsed_sec >= 60.0:
+        print(f"   Celková doba trvání výpočtu: {elapsed_sec:.2f} s ({elapsed_sec / 60.0:.2f} min)")
+    else:
+        print(f"   Celková doba trvání výpočtu: {elapsed_sec:.2f} s")
+    print("=====================================================")
 
 
 if __name__ == "__main__":
