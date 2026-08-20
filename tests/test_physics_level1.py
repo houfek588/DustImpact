@@ -276,6 +276,36 @@ class TestPhysicsLevel1(unittest.TestCase):
         except Exception as err:
             print(f"Skipping plot save: {err}")
 
+    def test_cfl_condition_stability(self):
+        """
+        Verifies that check_cfl_condition correctly checks the PIC numerical stability condition 1.5 * v_th * dt <= dx.
+        """
+        from dust_impact.numerics.pushers import check_cfl_condition
+
+        T_dust_eV = 2.0
+        v_th_e = np.sqrt(2.0 * e * T_dust_eV / m_e)  # ~8.38e5 m/s
+        v_cfl = 1.5 * v_th_e  # ~1.26e6 m/s
+        dx = 0.20  # 20 cm
+
+        # 1. Stable case: dt = 2 ns -> 1.5 * v_th * dt = 2.51 mm <= 200 mm
+        dt_stable = 2e-9
+        is_stable, cfl_ratio, dt_rec = check_cfl_condition(dt_stable, dx, v_cfl)
+        self.assertTrue(is_stable)
+        self.assertLess(cfl_ratio, 1.0)
+        self.assertAlmostEqual(dt_rec, dx / v_cfl, places=9)
+
+        # 2. Unstable case: dt = 1 us -> 1.5 * v_th * dt = 1.26 m > 0.20 m
+        dt_unstable = 1e-6
+        is_stable, cfl_ratio, dt_rec = check_cfl_condition(dt_unstable, dx, v_cfl)
+        self.assertFalse(is_stable)
+        self.assertGreater(cfl_ratio, 1.0)
+
+        self._log_result(
+            "CFL Numerical Stability Condition (1.5 * v_th * dt <= dx)",
+            "PASS",
+            f"1.5*v_th_e = {v_cfl:.2e} m/s | Stable dt={dt_stable:.1e} s (CFL={cfl_ratio:.4f}) | Unstable dt={dt_unstable:.1e} s (CFL={cfl_ratio:.2f})"
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -118,6 +118,10 @@ class SimulationParams3D(BaseSimulationParams):
         self.V_bias = self.antenna_bias_voltage_V
         self.collection_eff = self.antenna_collection_efficiency
 
+        if getattr(self, 'plasma_injection_mode', 'point_cloud') == 'homogeneous':
+            domain_vol = (2.0 * self.L_x) * (2.0 * self.L_y) * (2.0 * self.L_z)
+            self.q_macro = (self.solar_wind_density_m3 * domain_vol * e) / self.num_macroparticles
+
 
 def setup_simulation_parameters_3d(Vf: float, Vf_antenne: float = 0.0, config_file: str = "config.json") -> Tuple[SimulationParams3D, SimulationToggles3D, PlottingConfig3D]:
     """ Loads configuration for 3D PIC simulation using self-explanatory parameters. """

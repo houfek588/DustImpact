@@ -143,6 +143,10 @@ class SimulationParams2D(BaseSimulationParams):
         self.plot_stride = max(1, self.num_macroparticles // 1500)
         self.save_interval = max(1, self.steps // 50)
 
+        if getattr(self, 'plasma_injection_mode', 'point_cloud') == 'homogeneous':
+            domain_area = self.domain_length_x_m * (2.0 * self.domain_height_y_m)
+            self.q_macro = (self.solar_wind_density_m3 * domain_area * e) / self.num_macroparticles
+
 
 def setup_simulation_parameters_2d(Vf: float, Vf_antenne: float, config_file: str = "config.json") -> Tuple[
     SimulationParams2D, SimulationToggles2D, PlottingConfig]:

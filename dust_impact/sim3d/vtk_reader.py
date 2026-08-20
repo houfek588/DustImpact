@@ -222,126 +222,212 @@ def load_and_interpolate_vtk(params: SimulationParams3D):
             return pv.read(alt_path)
         return pv.read(filepath)
 
-    bg_file = getattr(params.vtk_files, 'spis_background_potential_file', getattr(params.vtk_files, 'background_potential', 'inputs/spis_V_bg.vtk'))
+    bg_file = getattr(params.vtk_files, 'spis_background_potential_file', getattr(params.vtk_files, 'background_potential', ''))
     sc_file = getattr(params.vtk_files, 'spacecraft_weighting_file', getattr(params.vtk_files, 'spacecraft_weighting', 'inputs/spis_Vw_body.vtk'))
     ant_files = getattr(params.vtk_files, 'antenna_weighting_files', getattr(params.vtk_files, 'antenna_weighting', []))
 
-    try:
-        mesh_bg = _read_mesh(bg_file)
-        sampled_bg = pic_grid.sample(mesh_bg)
-        pot_data = _extract_potential_from_mesh(sampled_bg, bg_file)
-        V_bg_grid = pot_data.reshape((Nx, Ny, Nz))
-        print(f"  -> Pozadí načteno. Rozsah potenciálu: {np.nanmin(V_bg_grid):.2f} až {np.nanmax(V_bg_grid):.2f} V")
+    # 1. Load spacecraft body geometry and weighting field
+    mesh_body = None
+    Vw_body = np.zeros((Nx, Ny, Nz))
+    spacecraft_mask_3d = np.zeros((Nx, Ny, Nz), dtype=bool)
 
-        mesh_body = _read_mesh(sc_file)
-        sampled_body = pic_grid.sample(mesh_body)
-        pot_body = _extract_potential_from_mesh(sampled_body, sc_file)
-        Vw_body = pot_body.reshape((Nx, Ny, Nz))
-
-        # 1. Spacecraft Surface Mask via PyVista select_enclosed_points
+    if sc_file and (os.path.exists(sc_file) or os.path.exists(os.path.join("inputs", sc_file))):
         try:
-            body_keys = list(mesh_body.point_data.keys())
-            key_body = body_keys[0] if body_keys else 'Potential'
-            contour_body = mesh_body.contour([0.5], scalars=key_body)
-            enclosed_body = pic_grid.select_enclosed_points(contour_body, tolerance=1e-5)
-            spacecraft_mask_3d = enclosed_body['SelectedPoints'].view(bool).reshape((Nx, Ny, Nz))
-            if np.sum(spacecraft_mask_3d) == 0:
-                spacecraft_mask_3d = detect_metal_mask_3d(Vw_body, dx_min)
-        except Exception:
-            spacecraft_mask_3d = detect_metal_mask_3d(Vw_body, dx_min)
+            mesh_body = _read_mesh(sc_file)
+            sampled_body = pic_grid.sample(mesh_body)
+            pot_body = _extract_potential_from_mesh(sampled_body, sc_file)
+            Vw_body = pot_body.reshape((Nx, Ny, Nz))
 
-        print(f"  -> Geometrie tělesa sondy načtena z {sc_file} (PyVista select_enclosed_points).")
-    except (FileNotFoundError, KeyError, Exception) as e:
-        print(f"[UPOZORNĚNÍ] Chyba při načítání VTK ({e}). Přecházím na syntetická pole.")
-        return _generate_synthetic_fields_3d(params)
+            # Normalize weighting field to 1.0 at conductor surface if unnormalized
+            vw_max_abs = np.nanmax(np.abs(Vw_body))
+            if vw_max_abs > 1e-6 and abs(vw_max_abs - 1.0) > 0.05:
+                # Find sign of peak potential on body
+                vw_peak = Vw_body.ravel()[np.nanargmax(np.abs(Vw_body))]
+                Vw_body = Vw_body / vw_peak
 
-    _compute_impact_intersection_and_normal(params, Vw_body, spacecraft_mask_3d, mesh_body)
+            try:
+                body_keys = list(mesh_body.point_data.keys())
+                key_body = body_keys[0] if body_keys else 'Potential'
+                raw_peak = mesh_body.point_data[key_body].ravel()[np.nanargmax(np.abs(mesh_body.point_data[key_body]))]
+                contour_val = 0.85 * raw_peak if abs(raw_peak) > 1e-6 else 0.85
+                contour_body = mesh_body.contour([contour_val], scalars=key_body)
+                enclosed_body = pic_grid.select_enclosed_points(contour_body, tolerance=1e-5)
+                spacecraft_mask_3d = enclosed_body['SelectedPoints'].view(bool).reshape((Nx, Ny, Nz))
+                if np.sum(spacecraft_mask_3d) == 0:
+                    spacecraft_mask_3d = detect_metal_mask_3d(Vw_body, dx_min, threshold=0.85)
+            except Exception:
+                spacecraft_mask_3d = detect_metal_mask_3d(Vw_body, dx_min, threshold=0.85)
 
-    Ex_bg, Ey_bg, Ez_bg = np.gradient(-V_bg_grid, params.dx, params.dy, params.dz)
-    Ex_bg[spacecraft_mask_3d] = 0.0
-    Ey_bg[spacecraft_mask_3d] = 0.0
-    Ez_bg[spacecraft_mask_3d] = 0.0
+            print(f"  -> Geometrie tělesa sondy načtena z {sc_file} (PyVista select_enclosed_points).")
+        except Exception as e:
+            print(f"[UPOZORNĚNÍ] Chyba při načítání tělesa sondy ({e}). Používám syntetické těleso.")
+            X_mat, Y_mat, Z_mat = np.meshgrid(params.x_grid, params.y_grid, params.z_grid, indexing='ij')
+            spacecraft_mask_3d = (X_mat**2 + Y_mat**2 + Z_mat**2) <= 1.0**2
+    else:
+        print(f"  -> Soubor tělesa sondy nezadán. Používám syntetické kulové těleso.")
+        X_mat, Y_mat, Z_mat = np.meshgrid(params.x_grid, params.y_grid, params.z_grid, indexing='ij')
+        spacecraft_mask_3d = (X_mat**2 + Y_mat**2 + Z_mat**2) <= 1.0**2
 
+    # Conductor is an equipotential body: Vw inside metal is exactly 1.0
+    Vw_body[spacecraft_mask_3d] = 1.0
+
+    # 2. Load weighting fields for all antennas
     Vw_grids = []
     Ewx_list, Ewy_list, Ewz_list = [], [], []
     antenna_masks_3d = []
 
     X_mat, Y_mat, Z_mat = np.meshgrid(params.x_grid, params.y_grid, params.z_grid, indexing='ij')
-    all_grid_coords = np.column_stack([X_mat.ravel(), Y_mat.ravel(), Z_mat.ravel()])
 
     for i, vtk_file in enumerate(ant_files):
+        mesh_ant = None
         try:
-            mesh_w = _read_mesh(vtk_file)
-            sampled_w = pic_grid.sample(mesh_w)
-            pot_data = _extract_potential_from_mesh(sampled_w, vtk_file)
-            Vw = pot_data.reshape((Nx, Ny, Nz))
+            mesh_ant = _read_mesh(vtk_file)
+            sampled_ant = pic_grid.sample(mesh_ant)
+            pot_ant = _extract_potential_from_mesh(sampled_ant, vtk_file)
+            Vw = pot_ant.reshape((Nx, Ny, Nz))
+
+            # Normalize weighting field to 1.0 on conductor surface
+            vw_ant_max = np.nanmax(np.abs(Vw))
+            if vw_ant_max > 1e-6 and abs(vw_ant_max - 1.0) > 0.05:
+                peak = Vw.ravel()[np.nanargmax(np.abs(Vw))]
+                Vw = Vw / peak
         except (FileNotFoundError, KeyError, Exception) as e:
-            print(f"[UPOZORNĚNÍ] VTK antény {i+1} nenalezen. Používám syntetické pole.")
+            print(f"[UPOZORNĚNÍ] VTK antény {i+1} nenalezen ({e}). Používám syntetické pole.")
             Vw = np.zeros((Nx, Ny, Nz))
 
-        Vw_grids.append(Vw)
-        Ewx, Ewy, Ewz = np.gradient(-Vw, params.dx, params.dy, params.dz)
-
-        # 2. Thin Antenna Mask via Distance Field from wire axis
-        w_threshold = getattr(params, 'antenna_weighting_threshold', 0.2)
-        wire_indices = np.where(Vw >= w_threshold)
-        if len(wire_indices[0]) > 0:
-            wire_coords = np.column_stack([
-                params.x_grid[wire_indices[0]],
-                params.y_grid[wire_indices[1]],
-                params.z_grid[wire_indices[2]]
-            ])
-            tree = cKDTree(wire_coords)
-            dists, _ = tree.query(all_grid_coords, k=1)
-            configured_r = getattr(params, 'antenna_mask_radius_m', 0.15)
-            r_ant = max(configured_r, 0.5 * dx_min)
-            mask = (dists.reshape((Nx, Ny, Nz)) <= r_ant)
+        # Exact antenna conductor geometry directly from weighting field (no artificial spatial expansion)
+        threshold = getattr(params, 'antenna_weighting_threshold', 0.85)
+        mask = None
+        if mesh_ant is not None:
+            try:
+                ant_keys = list(mesh_ant.point_data.keys())
+                key_ant = ant_keys[0] if ant_keys else 'Potential'
+                raw_peak = mesh_ant.point_data[key_ant].ravel()[np.nanargmax(np.abs(mesh_ant.point_data[key_ant]))]
+                contour_val = threshold * raw_peak if abs(raw_peak) > 1e-6 else threshold
+                contour_ant = mesh_ant.contour([contour_val], scalars=key_ant)
+                enclosed_ant = pic_grid.select_enclosed_points(contour_ant, tolerance=1e-5)
+                mask = enclosed_ant['SelectedPoints'].view(bool).reshape((Nx, Ny, Nz))
+                if np.sum(mask) == 0:
+                    mask = (Vw >= threshold)
+            except Exception:
+                mask = (Vw >= threshold)
         else:
-            mask = detect_metal_mask_3d(Vw, dx_min)
+            mask = (Vw >= threshold)
 
-        antenna_masks_3d.append(mask)
+        Vw[mask] = 1.0
+        Vw_grids.append(Vw)
 
+        Ewx, Ewy, Ewz = np.gradient(-Vw, params.dx, params.dy, params.dz)
         Ewx[mask] = 0.0
         Ewy[mask] = 0.0
         Ewz[mask] = 0.0
 
+        antenna_masks_3d.append(mask)
         Ewx_list.append(Ewx)
         Ewy_list.append(Ewy)
         Ewz_list.append(Ewz)
 
-    # Automaticky načteme přesný rovnovážný potenciál antén přímo z originální VTK sítě SPISu (nezávisle na rozlišení mřížky)
+    # 3. Load or synthesize background field via superposition (spacecraft + antennas)
+    mesh_bg = None
+    V_bg_grid = np.zeros((Nx, Ny, Nz))
+    V_sc = getattr(params, 'spacecraft_voltage_V', params.Vf)
+    if V_sc is None:
+        V_sc = params.Vf
+
+    if bg_file and (os.path.exists(bg_file) or os.path.exists(os.path.join("inputs", bg_file))):
+        try:
+            mesh_bg = _read_mesh(bg_file)
+            sampled_bg = pic_grid.sample(mesh_bg)
+            pot_data = _extract_potential_from_mesh(sampled_bg, bg_file)
+            V_bg_grid = pot_data.reshape((Nx, Ny, Nz))
+            V_bg_grid[spacecraft_mask_3d] = float(V_sc)
+            print(f"  -> Pozadí načteno z {bg_file}. Rozsah potenciálu: {np.nanmin(V_bg_grid):.2f} až {np.nanmax(V_bg_grid):.2f} V")
+        except Exception as e:
+            print(f"[UPOZORNĚNÍ] Nelze načíst pozadí z '{bg_file}' ({e}). Nastavuji počáteční pozadí na 0.0 V.")
+            mesh_bg = None
+            V_bg_grid = np.zeros((Nx, Ny, Nz))
+    else:
+        # Spacecraft body contribution
+        if abs(V_sc) > 1e-6 and np.any(Vw_body != 0.0):
+            V_bg_grid += float(V_sc) * Vw_body
+        elif abs(V_sc) > 1e-6:
+            r_mat = np.sqrt(X_mat**2 + Y_mat**2 + Z_mat**2)
+            V_bg_grid += float(V_sc) * np.exp(-r_mat / params.debye_length)
+
+        # Antenna weighting fields contribution
+        configured_biases = getattr(params, 'antenna_bias_voltage_V', getattr(params, 'V_bias', []))
+        added_antennas = 0
+        for i, Vw_ant in enumerate(Vw_grids):
+            v_ant = configured_biases[i] if i < len(configured_biases) else getattr(params, 'Vf_antenne', 0.0)
+            if abs(v_ant) > 1e-6 and np.any(Vw_ant != 0.0):
+                V_bg_grid += float(v_ant) * Vw_ant
+                added_antennas += 1
+
+        V_bg_grid[spacecraft_mask_3d] = float(V_sc)
+        for i in range(len(antenna_masks_3d)):
+            v_ant = configured_biases[i] if i < len(configured_biases) else getattr(params, 'Vf_antenne', 0.0)
+            V_bg_grid[antenna_masks_3d[i]] = float(v_ant)
+
+        if abs(V_sc) > 1e-6 or added_antennas > 0:
+            print(f"  -> Soubor pozadí nezadán: Elektrostatické pozadí vygenerováno superpozicí tělesa sondy (V_sc = {V_sc:.3f} V) a {len(ant_files)} antén.")
+        else:
+            print(f"  -> Soubor pozadí nezadán a potenciály jsou 0.0 V. Počáteční elektrostatické pozadí je nastaveno na 0.0 V.")
+
+    _compute_impact_intersection_and_normal(params, Vw_body, spacecraft_mask_3d, mesh_body)
+
+    if np.any(V_bg_grid != 0.0):
+        Ex_bg, Ey_bg, Ez_bg = np.gradient(-V_bg_grid, params.dx, params.dy, params.dz)
+        Ex_bg[spacecraft_mask_3d] = 0.0
+        Ey_bg[spacecraft_mask_3d] = 0.0
+        Ez_bg[spacecraft_mask_3d] = 0.0
+        for mask in antenna_masks_3d:
+            Ex_bg[mask] = 0.0
+            Ey_bg[mask] = 0.0
+            Ez_bg[mask] = 0.0
+    else:
+        Ex_bg = np.zeros((Nx, Ny, Nz))
+        Ey_bg = np.zeros((Nx, Ny, Nz))
+        Ez_bg = np.zeros((Nx, Ny, Nz))
+
+    # Extract antenna equilibrium potentials directly from SPIS VTK mesh or use configured bias values
     spis_v_bias = []
-    bg_keys = list(mesh_bg.point_data.keys())
+    bg_keys = list(mesh_bg.point_data.keys()) if mesh_bg is not None else []
     key_bg = bg_keys[0] if bg_keys else 'Potential'
 
     for i, vtk_file in enumerate(ant_files):
         extracted = False
-        try:
-            mesh_w = _read_mesh(vtk_file)
-            w_keys = list(mesh_w.point_data.keys())
-            key_w = w_keys[0] if w_keys else 'Potential'
+        if mesh_bg is not None:
+            try:
+                mesh_w = _read_mesh(vtk_file)
+                w_keys = list(mesh_w.point_data.keys())
+                key_w = w_keys[0] if w_keys else 'Potential'
 
-            vw_pts = mesh_w.point_data[key_w]
-            v_max_w = np.nanmax(vw_pts)
+                vw_pts = mesh_w.point_data[key_w]
+                v_max_w = np.nanmax(vw_pts)
 
-            if v_max_w > 0:
-                surf_pts_idx = np.where(vw_pts >= 0.8 * v_max_w)[0]
-                if len(surf_pts_idx) > 0 and key_bg in mesh_bg.point_data:
-                    v_bg_surf = mesh_bg.point_data[key_bg][surf_pts_idx]
-                    v_ant_exact = float(np.nanmean(v_bg_surf))
-                    spis_v_bias.append(v_ant_exact)
-                    print(f"  -> Anténa {i + 1}: Rovnovážný potenciál načten přímo ze SPIS VTK: {v_ant_exact:.3f} V")
-                    extracted = True
-        except Exception:
-            pass
+                if v_max_w > 0:
+                    surf_pts_idx = np.where(vw_pts >= 0.8 * v_max_w)[0]
+                    if len(surf_pts_idx) > 0 and key_bg in mesh_bg.point_data:
+                        v_bg_surf = mesh_bg.point_data[key_bg][surf_pts_idx]
+                        v_ant_exact = float(np.nanmean(v_bg_surf))
+                        spis_v_bias.append(v_ant_exact)
+                        print(f"  -> Anténa {i + 1}: Rovnovážný potenciál načten přímo ze SPIS VTK: {v_ant_exact:.3f} V")
+                        extracted = True
+            except Exception:
+                pass
 
         if not extracted:
-            if i < len(Vw_grids) and np.any(antenna_masks_3d[i]):
+            if i < len(params.antenna_bias_voltage_V):
+                spis_v_bias.append(params.antenna_bias_voltage_V[i])
+                print(f"  -> Anténa {i + 1}: Používám zadaný potenciál z parametrů: {params.antenna_bias_voltage_V[i]:.3f} V")
+            elif i < len(Vw_grids) and np.any(antenna_masks_3d[i]) and np.any(V_bg_grid != 0.0):
                 v_ant_val = float(np.nanmax(V_bg_grid[antenna_masks_3d[i]]))
                 spis_v_bias.append(v_ant_val)
                 print(f"  -> Anténa {i + 1}: Rovnovážný potenciál načten z mřížky: {v_ant_val:.3f} V")
-            elif i < len(params.antenna_bias_voltage_V):
-                spis_v_bias.append(params.antenna_bias_voltage_V[i])
+            else:
+                v_f_ant = getattr(params, 'Vf_antenne', 0.0)
+                spis_v_bias.append(v_f_ant)
+                print(f"  -> Anténa {i + 1}: Používám plovoucí potenciál: {v_f_ant:.3f} V")
 
     if spis_v_bias:
         params.antenna_bias_voltage_V = spis_v_bias

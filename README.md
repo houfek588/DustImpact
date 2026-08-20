@@ -74,3 +74,6 @@ Všechny vygenerované artefakty simulací se automaticky ukládají do složky 
 * Výstupní animace `.gif`
 * Statické grafy `.png`
 * Exportované časové řady `.csv`
+
+Bylo by možné zadat oblak plazmatu různými způsoby? Tedy tím, jak je to teď (oblak plazmatu koncentrovaný v jednom místě) nebo druhou možností homogenně
+  rozmístěnými částicemi plazmatu.

@@ -67,3 +67,37 @@ def leapfrog_step_3d(x: np.ndarray, y: np.ndarray, z: np.ndarray,
     z_new[active] += vz_new[active] * dt
 
     return x_new, y_new, z_new, vx_new, vy_new, vz_new
+
+
+def check_cfl_condition(dt: float, dx_min: float, v_char: float, safety_factor: float = 1.0) -> Tuple[bool, float, float]:
+    """
+    Checks the PIC kinetic numerical Courant-Friedrichs-Lewy (CFL) condition:
+        v * dt <= dx_min
+
+    Parameters:
+    -----------
+    dt : float
+        Simulation time step [s].
+    dx_min : float
+        Minimum spatial grid resolution [m].
+    v_char : float
+        Characteristic maximum particle velocity [m/s].
+    safety_factor : float, optional
+        Safety multiplier for maximum recommended time step (default 1.0).
+
+    Returns:
+    --------
+    is_stable : bool
+        True if v_char * dt <= dx_min, False otherwise.
+    cfl_number : float
+        Courant number = (v_char * dt) / dx_min.
+    dt_max_recommended : float
+        Maximum recommended time step = (dx_min / v_char) * safety_factor [s].
+    """
+    if v_char <= 0 or dx_min <= 0:
+        return True, 0.0, float('inf')
+
+    cfl_number = float((v_char * dt) / dx_min)
+    dt_max_recommended = float((dx_min / v_char) * safety_factor)
+    is_stable = bool(cfl_number <= 1.0)
+    return is_stable, cfl_number, dt_max_recommended

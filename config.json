@@ -22,9 +22,11 @@
         "impact_cloud_temperature_eV": 2.0,
         "solar_wind_electron_temp_eV": 15.0,
         "solar_wind_density_m3": 10000000.0,
+        "spacecraft_voltage_V": 25.0,
+        "plasma_injection_mode": "point_cloud",
         "num_macroparticles": 20000,
         "time_step_s": 2e-09,
-        "simulation_duration_s": 2e-07,
+        "simulation_duration_s": 5e-07,
         "impact_time_delay_s": 1e-08,
         "domain_half_length_x_m": 10.0,
         "domain_half_length_y_m": 10.0,
@@ -39,9 +41,9 @@
             -1.0,
             0.0
         ],
-        "grid_nodes_x": 100,
-        "grid_nodes_y": 100,
-        "grid_nodes_z": 100,
+        "grid_nodes_x": 150,
+        "grid_nodes_y": 150,
+        "grid_nodes_z": 150,
         "antenna_capacitance_F": [
             2e-12,
             2e-12,
@@ -62,7 +64,7 @@
             0.8,
             0.8
         ],
-        "antenna_mask_radius_m": 0.1,
+        "antenna_mask_radius_m": 0.05,
         "antenna_weighting_threshold": 0.5
     },
     "plotting": {

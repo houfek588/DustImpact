@@ -24,8 +24,8 @@ def interp_field_2d(x: np.ndarray, y: np.ndarray, x_grid: np.ndarray, y_grid: np
     Fast vectorized 2D bilinear grid-to-particle interpolation.
     """
     Nx, Ny = Field_2D.shape
-    idx_x = (x - x_grid[0]) / dx
-    idx_y = (y - y_grid[0]) / dy
+    idx_x = np.clip((x - x_grid[0]) / dx, 0.0, float(Nx - 1.0001))
+    idx_y = np.clip((y - y_grid[0]) / dy, 0.0, float(Ny - 1.0001))
 
     i = np.clip(np.floor(idx_x).astype(np.int64), 0, Nx - 2)
     j = np.clip(np.floor(idx_y).astype(np.int64), 0, Ny - 2)
@@ -49,9 +49,9 @@ def interp_field_3d(x: np.ndarray, y: np.ndarray, z: np.ndarray,
     Fast vectorized 3D trilinear grid-to-particle interpolation.
     """
     Nx, Ny, Nz = Field_3D.shape
-    idx_x = (x - x_grid[0]) / dx
-    idx_y = (y - y_grid[0]) / dy
-    idx_z = (z - z_grid[0]) / dz
+    idx_x = np.clip((x - x_grid[0]) / dx, 0.0, float(Nx - 1.0001))
+    idx_y = np.clip((y - y_grid[0]) / dy, 0.0, float(Ny - 1.0001))
+    idx_z = np.clip((z - z_grid[0]) / dz, 0.0, float(Nz - 1.0001))
 
     i = np.clip(np.floor(idx_x).astype(np.int64), 0, Nx - 2)
     j = np.clip(np.floor(idx_y).astype(np.int64), 0, Ny - 2)

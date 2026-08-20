@@ -6,8 +6,11 @@ Main runner for 3D PIC Simulation using self-explanatory parameters.
 
 import argparse
 import time
+import numpy as np
+from dust_impact.physics.constants import e, m_e
 from dust_impact.physics.charging import calculate_equilibrium_potential, ENV_EARTH, MAT_ALUMINIUM, MAT_ALUMINIUM_ANTENNE
 from dust_impact.common.io import save_results_npz, load_results_npz
+from dust_impact.numerics.pushers import check_cfl_condition
 from dust_impact.sim3d.config_loader import setup_simulation_parameters_3d
 from dust_impact.sim3d.vtk_reader import load_and_interpolate_vtk
 from dust_impact.sim3d.sim_core import DustImpactSimulation3D
@@ -30,6 +33,18 @@ def run_3d_simulation(config_file: str = "config.json", visualize_results: bool 
 
     print(f"Vypočtená Debyeova délka: {sim_params.debye_length:.3f} m")
     print(f"Fyzická velikost elementu mřížky: dx = {sim_params.dx:.3f} m, dy = {sim_params.dy:.3f} m, dz = {sim_params.dz:.3f} m")
+
+    # Kontrola numerické stability: CFL podmínka (1.5 * v_th * dt <= dx)
+    v_th_e = np.sqrt(2.0 * e * sim_params.T_dust_eV / m_e)
+    v_cfl = 1.5 * v_th_e
+    dx_min = min(sim_params.dx, sim_params.dy, sim_params.dz)
+    is_stable, cfl_ratio, dt_max_rec = check_cfl_condition(sim_params.dt, dx_min, v_cfl)
+    if is_stable:
+        print(f"Kontrola CFL podmínky (1.5*v_th * dt <= dx): [OK] Splněna (CFL poměr: {cfl_ratio:.4f} <= 1.0, posun: {v_cfl * sim_params.dt * 1e3:.2f} mm / buňka: {dx_min * 1e3:.2f} mm)")
+    else:
+        print(f"[NUMERICKÉ VAROVÁNÍ] Nesplněna CFL podmínka (1.5*v_th * dt > dx)! Poměr: {cfl_ratio:.2f} > 1.0\n"
+              f"  -> Rychlé elektrony (1.5*v_th) urazí za krok {v_cfl * sim_params.dt * 1e3:.2f} mm, což přesahuje velikost buňky {dx_min * 1e3:.2f} mm.\n"
+              f"  -> Doporučený maximální časový krok: dt <= {dt_max_rec:.2e} s")
 
     V_bg, Vw_grids, Ex_bg, Ey_bg, Ez_bg, Ewx, Ewy, Ewz, ant_masks, sc_mask = load_and_interpolate_vtk(sim_params)
 

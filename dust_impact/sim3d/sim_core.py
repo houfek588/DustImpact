@@ -39,62 +39,105 @@ class DustImpactSimulation3D:
         v_th_e = np.sqrt(2 * e * self.p.T_dust_eV / m_e)
         v_th_i = np.sqrt(2 * e * self.p.T_dust_eV / self.p.m_i)
 
-        impact_normal_val = getattr(self.p, 'impact_normal', [-0.7071, 0.7071, 0.0])
-        n = np.array(impact_normal_val, dtype=float)
-        n_norm = np.linalg.norm(n)
-        if n_norm > 0:
-            n = n / n_norm
+        mode = getattr(self.p, 'plasma_injection_mode', 'point_cloud')
+
+        if mode == 'homogeneous':
+            # 1. Homogeneous uniform spatial distribution across domain [-Lx, Lx], [-Ly, Ly], [-Lz, Lz]
+            def _sample_outside_spacecraft(n_pts):
+                pts = np.random.uniform(
+                    low=[-self.p.L_x, -self.p.L_y, -self.p.L_z],
+                    high=[self.p.L_x, self.p.L_y, self.p.L_z],
+                    size=(n_pts, 3)
+                )
+                for idx in range(n_pts):
+                    ix = np.clip(int((pts[idx, 0] - self.p.x_grid[0]) / self.p.dx), 0, self.p.Nx - 1)
+                    iy = np.clip(int((pts[idx, 1] - self.p.y_grid[0]) / self.p.dy), 0, self.p.Ny - 1)
+                    iz = np.clip(int((pts[idx, 2] - self.p.z_grid[0]) / self.p.dz), 0, self.p.Nz - 1)
+                    while self.spacecraft_mask_3d[ix, iy, iz]:
+                        pts[idx] = np.random.uniform(
+                            low=[-self.p.L_x, -self.p.L_y, -self.p.L_z],
+                            high=[self.p.L_x, self.p.L_y, self.p.L_z]
+                        )
+                        ix = np.clip(int((pts[idx, 0] - self.p.x_grid[0]) / self.p.dx), 0, self.p.Nx - 1)
+                        iy = np.clip(int((pts[idx, 1] - self.p.y_grid[0]) / self.p.dy), 0, self.p.Ny - 1)
+                        iz = np.clip(int((pts[idx, 2] - self.p.z_grid[0]) / self.p.dz), 0, self.p.Nz - 1)
+                return pts
+
+            pts_e = _sample_outside_spacecraft(self.p.N_particles)
+            pts_i = pts_e.copy()
+
+            self.x_e, self.y_e, self.z_e = pts_e[:, 0], pts_e[:, 1], pts_e[:, 2]
+            self.x_i, self.y_i, self.z_i = pts_i[:, 0], pts_i[:, 1], pts_i[:, 2]
+
+            sigma_v_e = v_th_e / np.sqrt(3.0)
+            sigma_v_i = v_th_i / np.sqrt(3.0)
+
+            self.vx_e = np.random.normal(0, sigma_v_e, self.p.N_particles)
+            self.vy_e = np.random.normal(0, sigma_v_e, self.p.N_particles)
+            self.vz_e = np.random.normal(0, sigma_v_e, self.p.N_particles)
+
+            self.vx_i = np.random.normal(0, sigma_v_i, self.p.N_particles)
+            self.vy_i = np.random.normal(0, sigma_v_i, self.p.N_particles)
+            self.vz_i = np.random.normal(0, sigma_v_i, self.p.N_particles)
+
         else:
-            n = np.array([-0.7071, 0.7071, 0.0])
+            # 2. Concentrated point cloud (dust impact expansion) mode
+            impact_normal_val = getattr(self.p, 'impact_normal', [-0.7071, 0.7071, 0.0])
+            n = np.array(impact_normal_val, dtype=float)
+            n_norm = np.linalg.norm(n)
+            if n_norm > 0:
+                n = n / n_norm
+            else:
+                n = np.array([-0.7071, 0.7071, 0.0])
 
-        theta = np.arccos(np.clip(n[2], -1.0, 1.0))
-        phi = np.arctan2(n[1], n[0])
+            theta = np.arccos(np.clip(n[2], -1.0, 1.0))
+            phi = np.arctan2(n[1], n[0])
 
-        Rz = np.array([
-            [np.cos(phi), -np.sin(phi), 0],
-            [np.sin(phi), np.cos(phi), 0],
-            [0, 0, 1]
-        ])
-        Ry = np.array([
-            [np.cos(theta), 0, np.sin(theta)],
-            [0, 1, 0],
-            [-np.sin(theta), 0, np.cos(theta)]
-        ])
-        R = Rz @ Ry
+            Rz = np.array([
+                [np.cos(phi), -np.sin(phi), 0],
+                [np.sin(phi), np.cos(phi), 0],
+                [0, 0, 1]
+            ])
+            Ry = np.array([
+                [np.cos(theta), 0, np.sin(theta)],
+                [0, 1, 0],
+                [-np.sin(theta), 0, np.cos(theta)]
+            ])
+            R = Rz @ Ry
 
-        v_z_prime_i = np.abs(np.random.normal(v_th_i, v_th_i / 2, self.p.N_particles))
-        v_x_prime_i = np.random.normal(0, v_th_i / 2, self.p.N_particles)
-        v_y_prime_i = np.random.normal(0, v_th_i / 2, self.p.N_particles)
-        v_rot_i = R @ np.vstack([v_x_prime_i, v_y_prime_i, v_z_prime_i])
-        self.vx_i, self.vy_i, self.vz_i = v_rot_i[0], v_rot_i[1], v_rot_i[2]
+            v_z_prime_i = np.abs(np.random.normal(v_th_i, v_th_i / 2, self.p.N_particles))
+            v_x_prime_i = np.random.normal(0, v_th_i / 2, self.p.N_particles)
+            v_y_prime_i = np.random.normal(0, v_th_i / 2, self.p.N_particles)
+            v_rot_i = R @ np.vstack([v_x_prime_i, v_y_prime_i, v_z_prime_i])
+            self.vx_i, self.vy_i, self.vz_i = v_rot_i[0], v_rot_i[1], v_rot_i[2]
 
-        v_z_prime_e = np.abs(np.random.normal(v_th_e, v_th_e / 2, self.p.N_particles))
-        v_x_prime_e = np.random.normal(0, v_th_e / 2, self.p.N_particles)
-        v_y_prime_e = np.random.normal(0, v_th_e / 2, self.p.N_particles)
-        v_rot_e = R @ np.vstack([v_x_prime_e, v_y_prime_e, v_z_prime_e])
-        self.vx_e, self.vy_e, self.vz_e = v_rot_e[0], v_rot_e[1], v_rot_e[2]
+            v_z_prime_e = np.abs(np.random.normal(v_th_e, v_th_e / 2, self.p.N_particles))
+            v_x_prime_e = np.random.normal(0, v_th_e / 2, self.p.N_particles)
+            v_y_prime_e = np.random.normal(0, v_th_e / 2, self.p.N_particles)
+            v_rot_e = R @ np.vstack([v_x_prime_e, v_y_prime_e, v_z_prime_e])
+            self.vx_e, self.vy_e, self.vz_e = v_rot_e[0], v_rot_e[1], v_rot_e[2]
 
-        impact_point_val = getattr(self.p, 'impact_point', [0.0, 0.0, 0.0])
-        r0 = np.array(impact_point_val, dtype=float)
+            impact_point_val = getattr(self.p, 'impact_pos', getattr(self.p, 'impact_location_xyz_m', [0.0, 0.0, 0.0]))
+            r0 = np.array(impact_point_val, dtype=float)
 
-        grid_step = max(self.p.dx, self.p.dy, self.p.dz)
-        r_start = r0 + n * (0.5 * grid_step)
-        for step_mult in range(1, 30):
-            test_r = r0 + n * (step_mult * 0.2 * grid_step)
-            ix = np.clip(int((test_r[0] - self.p.x_grid[0]) / self.p.dx), 0, self.p.Nx - 1)
-            iy = np.clip(int((test_r[1] - self.p.y_grid[0]) / self.p.dy), 0, self.p.Ny - 1)
-            iz = np.clip(int((test_r[2] - self.p.z_grid[0]) / self.p.dz), 0, self.p.Nz - 1)
-            if not self.spacecraft_mask_3d[ix, iy, iz]:
-                r_start = test_r + n * (0.5 * grid_step)
-                break
+            grid_step = max(self.p.dx, self.p.dy, self.p.dz)
+            r_start = r0 + n * (0.2 * grid_step)
+            for step_mult in range(1, 50):
+                ix = np.clip(int((r_start[0] - self.p.x_grid[0]) / self.p.dx), 0, self.p.Nx - 1)
+                iy = np.clip(int((r_start[1] - self.p.y_grid[0]) / self.p.dy), 0, self.p.Ny - 1)
+                iz = np.clip(int((r_start[2] - self.p.z_grid[0]) / self.p.dz), 0, self.p.Nz - 1)
+                if not self.spacecraft_mask_3d[ix, iy, iz]:
+                    break
+                r_start = r_start + n * (0.2 * grid_step)
 
-        self.x_e = np.full(self.p.N_particles, r_start[0])
-        self.y_e = np.full(self.p.N_particles, r_start[1])
-        self.z_e = np.full(self.p.N_particles, r_start[2])
+            r_offset = np.random.normal(0, 0.01 * grid_step, (self.p.N_particles, 3))
+            self.x_e = r_start[0] + r_offset[:, 0]
+            self.y_e = r_start[1] + r_offset[:, 1]
+            self.z_e = r_start[2] + r_offset[:, 2]
 
-        self.x_i = np.full(self.p.N_particles, r_start[0])
-        self.y_i = np.full(self.p.N_particles, r_start[1])
-        self.z_i = np.full(self.p.N_particles, r_start[2])
+            self.x_i = r_start[0] + r_offset[:, 0]
+            self.y_i = r_start[1] + r_offset[:, 1]
+            self.z_i = r_start[2] + r_offset[:, 2]
 
         self.active_e = np.zeros(self.p.N_particles, dtype=bool)
         self.active_i = np.zeros(self.p.N_particles, dtype=bool)
@@ -151,14 +194,14 @@ class DustImpactSimulation3D:
                     if is_boundary or self.combined_mask[i, j, k]:
                         A_self[idx, idx] = 1.0
                     else:
-                        diag_val = -2 / dx2 - 2 / dy2 - 2 / dz2
+                        diag_val = 2 / dx2 + 2 / dy2 + 2 / dz2
                         A_self[idx, idx] = diag_val
-                        A_self[idx, self._get_1d_idx(i - 1, j, k)] = 1 / dx2
-                        A_self[idx, self._get_1d_idx(i + 1, j, k)] = 1 / dx2
-                        A_self[idx, self._get_1d_idx(i, j - 1, k)] = 1 / dy2
-                        A_self[idx, self._get_1d_idx(i, j + 1, k)] = 1 / dy2
-                        A_self[idx, self._get_1d_idx(i, j, k - 1)] = 1 / dz2
-                        A_self[idx, self._get_1d_idx(i, j, k + 1)] = 1 / dz2
+                        A_self[idx, self._get_1d_idx(i - 1, j, k)] = -1 / dx2
+                        A_self[idx, self._get_1d_idx(i + 1, j, k)] = -1 / dx2
+                        A_self[idx, self._get_1d_idx(i, j - 1, k)] = -1 / dy2
+                        A_self[idx, self._get_1d_idx(i, j + 1, k)] = -1 / dy2
+                        A_self[idx, self._get_1d_idx(i, j, k - 1)] = -1 / dz2
+                        A_self[idx, self._get_1d_idx(i, j, k + 1)] = -1 / dz2
 
         A_csr = A_self.tocsr()
         if HAS_PYAMG:
@@ -212,18 +255,24 @@ class DustImpactSimulation3D:
         rho_grid = (counts_i - counts_e) * self.p.q_macro / dV
         self.rho_grid = rho_grid
 
-        b_self = np.zeros(Nx * Ny * Nz)
-        for i in range(Nx):
-            for j in range(Ny):
-                for k in range(Nz):
-                    idx = self._get_1d_idx(i, j, k)
-                    is_boundary = (i == 0) or (i == Nx - 1) or (j == 0) or (j == Ny - 1) or (k == 0) or (k == Nz - 1)
-                    if not (is_boundary or self.combined_mask[i, j, k]):
-                        b_self[idx] = -rho_grid[i, j, k] / eps_0
+        # -Laplacian(V) = rho / eps_0 -> A * V = b where A is SPD
+        b_3d = rho_grid / eps_0
+        b_3d[self.combined_mask] = 0.0
+        b_3d[0, :, :] = 0.0
+        b_3d[-1, :, :] = 0.0
+        b_3d[:, 0, :] = 0.0
+        b_3d[:, -1, :] = 0.0
+        b_3d[:, :, 0] = 0.0
+        b_3d[:, :, -1] = 0.0
+        b_self = np.nan_to_num(b_3d.ravel(), nan=0.0, posinf=0.0, neginf=0.0)
 
         if HAS_PYAMG:
-            x0 = self.V_self_grid.ravel()
-            V_self_1d = self.amg_solver.solve(b_self, x0=x0, tol=1e-5)
+            x0 = np.nan_to_num(self.V_self_grid.ravel(), nan=0.0, posinf=0.0, neginf=0.0)
+            try:
+                V_self_1d = self.amg_solver.solve(b_self, x0=x0, tol=1e-4, maxiter=20, accel='cg')
+            except Exception:
+                V_self_1d = self.amg_solver.solve(b_self, tol=1e-3, maxiter=20)
+            V_self_1d = np.nan_to_num(V_self_1d, nan=0.0, posinf=0.0, neginf=0.0)
         else:
             V_self_1d = self.lu_solver(b_self)
 
@@ -279,13 +328,13 @@ class DustImpactSimulation3D:
         y_mid = 0.5 * (y_act + y_new)
         z_mid = 0.5 * (z_act + z_new)
 
-        idx_x_new = np.clip(((x_new - self.p.x_grid[0]) / self.p.dx).astype(int), 0, self.p.Nx - 1)
-        idx_y_new = np.clip(((y_new - self.p.y_grid[0]) / self.p.dy).astype(int), 0, self.p.Ny - 1)
-        idx_z_new = np.clip(((z_new - self.p.z_grid[0]) / self.p.dz).astype(int), 0, self.p.Nz - 1)
+        idx_x_new = np.clip(np.floor((x_new - self.p.x_grid[0]) / self.p.dx), 0, self.p.Nx - 1).astype(np.int64)
+        idx_y_new = np.clip(np.floor((y_new - self.p.y_grid[0]) / self.p.dy), 0, self.p.Ny - 1).astype(np.int64)
+        idx_z_new = np.clip(np.floor((z_new - self.p.z_grid[0]) / self.p.dz), 0, self.p.Nz - 1).astype(np.int64)
 
-        idx_x_mid = np.clip(((x_mid - self.p.x_grid[0]) / self.p.dx).astype(int), 0, self.p.Nx - 1)
-        idx_y_mid = np.clip(((y_mid - self.p.y_grid[0]) / self.p.dy).astype(int), 0, self.p.Ny - 1)
-        idx_z_mid = np.clip(((z_mid - self.p.z_grid[0]) / self.p.dz).astype(int), 0, self.p.Nz - 1)
+        idx_x_mid = np.clip(np.floor((x_mid - self.p.x_grid[0]) / self.p.dx), 0, self.p.Nx - 1).astype(np.int64)
+        idx_y_mid = np.clip(np.floor((y_mid - self.p.y_grid[0]) / self.p.dy), 0, self.p.Ny - 1).astype(np.int64)
+        idx_z_mid = np.clip(np.floor((z_mid - self.p.z_grid[0]) / self.p.dz), 0, self.p.Nz - 1).astype(np.int64)
 
         hit_sc = self.spacecraft_mask_3d[idx_x_new, idx_y_new, idx_z_new] | self.spacecraft_mask_3d[idx_x_mid, idx_y_mid, idx_z_mid]
         global_active_indices = np.where(new_active)[0]
@@ -293,9 +342,9 @@ class DustImpactSimulation3D:
         new_active[destroyed_by_sc] = False
 
         for a_idx in range(self.num_antennas):
-            idx_x_ant = np.clip(((x[new_active] - self.p.x_grid[0]) / self.p.dx).astype(int), 0, self.p.Nx - 1)
-            idx_y_ant = np.clip(((y[new_active] - self.p.y_grid[0]) / self.p.dy).astype(int), 0, self.p.Ny - 1)
-            idx_z_ant = np.clip(((z[new_active] - self.p.z_grid[0]) / self.p.dz).astype(int), 0, self.p.Nz - 1)
+            idx_x_ant = np.clip(np.floor((x[new_active] - self.p.x_grid[0]) / self.p.dx), 0, self.p.Nx - 1).astype(np.int64)
+            idx_y_ant = np.clip(np.floor((y[new_active] - self.p.y_grid[0]) / self.p.dy), 0, self.p.Ny - 1).astype(np.int64)
+            idx_z_ant = np.clip(np.floor((z[new_active] - self.p.z_grid[0]) / self.p.dz), 0, self.p.Nz - 1).astype(np.int64)
 
             is_inside = self.antenna_masks_3d[a_idx][idx_x_ant, idx_y_ant, idx_z_ant]
             is_outside = ~is_inside

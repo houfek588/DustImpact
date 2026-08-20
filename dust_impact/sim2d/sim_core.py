@@ -23,19 +23,37 @@ class DustImpactSimulation2D:
         self.toggles = toggles
         self.num_antennas = len(self.p.antennas)
 
-        theta_e = np.random.uniform(-np.pi / 2, np.pi / 2, self.p.N_particles)
-        v_mag_e = np.random.normal(self.p.v_th_e, self.p.v_th_e / 2, self.p.N_particles)
-        self.vx_e = np.abs(v_mag_e * np.cos(theta_e))
-        self.vy_e = v_mag_e * np.sin(theta_e)
-        self.x_e = np.full(self.p.N_particles, 0.5 * self.p.dx)
-        self.y_e = np.full(self.p.N_particles, self.p.y_impact)
+        mode = getattr(self.p, 'plasma_injection_mode', 'point_cloud')
 
-        theta_i = np.random.uniform(-np.pi / 2, np.pi / 2, self.p.N_particles)
-        v_mag_i = np.random.normal(self.p.v_th_i, self.p.v_th_i / 2, self.p.N_particles)
-        self.vx_i = np.abs(v_mag_i * np.cos(theta_i))
-        self.vy_i = v_mag_i * np.sin(theta_i)
-        self.x_i = np.full(self.p.N_particles, 0.5 * self.p.dx)
-        self.y_i = np.full(self.p.N_particles, self.p.y_impact)
+        if mode == 'homogeneous':
+            # 1. Homogeneous uniform spatial distribution across 2D domain [0, L_domain], [-H_domain, H_domain]
+            self.x_e = np.random.uniform(0.1 * self.p.dx, self.p.L_domain, self.p.N_particles)
+            self.y_e = np.random.uniform(-self.p.H_domain, self.p.H_domain, self.p.N_particles)
+            self.x_i = self.x_e.copy()
+            self.y_i = self.y_e.copy()
+
+            sigma_v_e = self.p.v_th_e / np.sqrt(2.0)
+            sigma_v_i = self.p.v_th_i / np.sqrt(2.0)
+
+            self.vx_e = np.random.normal(0, sigma_v_e, self.p.N_particles)
+            self.vy_e = np.random.normal(0, sigma_v_e, self.p.N_particles)
+            self.vx_i = np.random.normal(0, sigma_v_i, self.p.N_particles)
+            self.vy_i = np.random.normal(0, sigma_v_i, self.p.N_particles)
+        else:
+            # 2. Point cloud impact expansion mode
+            theta_e = np.random.uniform(-np.pi / 2, np.pi / 2, self.p.N_particles)
+            v_mag_e = np.random.normal(self.p.v_th_e, self.p.v_th_e / 2, self.p.N_particles)
+            self.vx_e = np.abs(v_mag_e * np.cos(theta_e))
+            self.vy_e = v_mag_e * np.sin(theta_e)
+            self.x_e = 0.5 * self.p.dx + np.random.normal(0, 0.01 * self.p.dx, self.p.N_particles)
+            self.y_e = self.p.y_impact + np.random.normal(0, 0.01 * self.p.dy, self.p.N_particles)
+
+            theta_i = np.random.uniform(-np.pi / 2, np.pi / 2, self.p.N_particles)
+            v_mag_i = np.random.normal(self.p.v_th_i, self.p.v_th_i / 2, self.p.N_particles)
+            self.vx_i = np.abs(v_mag_i * np.cos(theta_i))
+            self.vy_i = v_mag_i * np.sin(theta_i)
+            self.x_i = 0.5 * self.p.dx + np.random.normal(0, 0.01 * self.p.dx, self.p.N_particles)
+            self.y_i = self.p.y_impact + np.random.normal(0, 0.01 * self.p.dy, self.p.N_particles)
 
         self.active_e = np.zeros(self.p.N_particles, dtype=bool)
         self.active_i = np.zeros(self.p.N_particles, dtype=bool)
@@ -119,6 +137,18 @@ class DustImpactSimulation2D:
     def _update_background_field(self, step: int = 0):
         Ex_tot = np.zeros((self.p.Nx, self.p.Ny))
         Ey_tot = np.zeros((self.p.Nx, self.p.Ny))
+
+        V_sc = getattr(self.p, 'spacecraft_voltage_V', self.p.Vf)
+        if V_sc is None:
+            V_sc = self.p.Vf
+        if abs(V_sc) > 1e-6:
+            if getattr(self.toggles, 'enable_debye_screening', True):
+                V_sc_bg = float(V_sc) * np.exp(-self.p.X_mat / self.p.debye_length)
+            else:
+                V_sc_bg = float(V_sc) * np.maximum(0.0, 1.0 - self.p.X_mat / self.p.L_domain)
+            Ex_sc, Ey_sc = np.gradient(-V_sc_bg, self.p.dx, self.p.dy)
+            Ex_tot += Ex_sc
+            Ey_tot += Ey_sc
 
         for a_idx, ant in enumerate(self.p.antennas):
             V_curr = self.voltage_ant[a_idx, max(0, step - 1)] if step > 0 else self.voltage_ant[a_idx, 0]
