@@ -24,10 +24,20 @@ def _get_v_signed(hist: Dict[str, Any], species: str, i: int) -> np.ndarray:
     return v_x_curr[~np.isnan(v_x_curr)]
 
 
+def _safe_set_window_title(fig, title: str) -> None:
+    """Safely set figure window title without crashing on headless / non-GUI backends."""
+    if hasattr(fig, 'canvas') and hasattr(fig.canvas, 'manager') and fig.canvas.manager is not None:
+        if hasattr(fig.canvas.manager, 'set_window_title'):
+            try:
+                fig.canvas.manager.set_window_title(title)
+            except Exception:
+                pass
+
+
 def _plot_currents_and_voltage(results: Dict, params: SimulationParams3D, plot_cfg: PlottingConfig3D):
     if not plot_cfg.show_currents: return
     fig1, (ax1a, ax1b) = plt.subplots(2, 1, figsize=(10, 8))
-    fig1.canvas.manager.set_window_title('3D Signals: Currents and Voltages')
+    _safe_set_window_title(fig1, '3D Signals: Currents and Voltages')
     colors = ['blue', 'red', 'green', 'orange', 'purple']
 
     for a_idx in range(len(params.C_ant)):
@@ -56,7 +66,7 @@ def _animate_yz_fields_slice(hist: Dict, params: SimulationParams3D, plot_cfg: P
     if not plot_cfg.show_fields_slice: return
 
     fig2, ax_V = plt.subplots(figsize=(8, 6))
-    fig2.canvas.manager.set_window_title('3D Fields: 2D YZ Slice (x = 0)')
+    _safe_set_window_title(fig2, '3D Fields: 2D YZ Slice (x = 0)')
 
     mid_x = params.Nx // 2
 
@@ -109,7 +119,7 @@ def _animate_yz_particles_slice(hist: Dict, params: SimulationParams3D, plot_cfg
     if not plot_cfg.show_particles_3d: return
 
     fig_slice, ax_pos = plt.subplots(figsize=(8, 6))
-    fig_slice.canvas.manager.set_window_title('3D Particles: 2D YZ Slice (x >= 0)')
+    _safe_set_window_title(fig_slice, '3D Particles: 2D YZ Slice (x >= 0)')
 
     mid_x = params.Nx // 2
     Y_mesh, Z_mesh = np.meshgrid(params.y_grid, params.z_grid, indexing='ij')
@@ -176,7 +186,7 @@ def _animate_3d_particles(hist: Dict, params: SimulationParams3D, plot_cfg: Plot
 
     fig3 = plt.figure(figsize=(10, 8))
     ax = fig3.add_subplot(111, projection='3d')
-    fig3.canvas.manager.set_window_title('3D Particle Kinetics and Geometry')
+    _safe_set_window_title(fig3, '3D Particle Kinetics and Geometry')
 
     X, Y, Z = np.meshgrid(params.x_grid, params.y_grid, params.z_grid, indexing='ij')
 
@@ -230,7 +240,7 @@ def _animate_velocity_distribution(hist: Dict[str, Any], plot_cfg: PlottingConfi
     if not plot_cfg.show_velocity_anim: return
 
     fig4, ax_v = plt.subplots(figsize=(10, 4))
-    fig4.canvas.manager.set_window_title('Thermodynamics: Total 3D Velocity')
+    _safe_set_window_title(fig4, 'Thermodynamics: Total 3D Velocity')
 
     line_ve, = ax_v.plot([], [], lw=2, color='red', drawstyle='steps-mid', label='Electrons')
     line_vi, = ax_v.plot([], [], lw=2, color='blue', drawstyle='steps-mid', label='Ions')
@@ -289,7 +299,7 @@ def _plot_static_vtk_fields(params: SimulationParams3D, V_bg: np.ndarray, Vw_gri
     rows = (n_plots + 1) // 2
 
     fig, axes = plt.subplots(rows, cols, figsize=(12, 5 * rows))
-    fig.canvas.manager.set_window_title('Static Input Fields (VTK/Synthetic)')
+    _safe_set_window_title(fig, 'Static Input Fields (VTK/Synthetic)')
     axes = axes.flatten()
 
     mid_x = params.Nx // 2

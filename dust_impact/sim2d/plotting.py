@@ -23,12 +23,22 @@ def _get_v_signed(hist: Dict[str, Any], species: str, i: int) -> np.ndarray:
     return v_x_curr[~np.isnan(v_x_curr)]
 
 
+def _safe_set_window_title(fig, title: str) -> None:
+    """Safely set figure window title without crashing on headless / non-GUI backends."""
+    if hasattr(fig, 'canvas') and hasattr(fig.canvas, 'manager') and fig.canvas.manager is not None:
+        if hasattr(fig.canvas.manager, 'set_window_title'):
+            try:
+                fig.canvas.manager.set_window_title(title)
+            except Exception:
+                pass
+
+
 def _plot_currents_and_voltage(results: Dict[str, Any], params: SimulationParams2D, plot_cfg: PlottingConfig) -> None:
     if not plot_cfg.show_currents:
         return
 
     fig1, (ax1a, ax1b) = plt.subplots(2, 1, figsize=(10, 8))
-    fig1.canvas.manager.set_window_title('2D Signals: Currents and Voltages')
+    _safe_set_window_title(fig1, '2D Signals: Currents and Voltages')
 
     colors = ['blue', 'red', 'green', 'orange', 'purple', 'brown']
 
@@ -67,7 +77,7 @@ def _animate_2d_fields(hist: Dict[str, Any], params: SimulationParams2D, plot_cf
         return
 
     fig2, (ax_V, ax_rho) = plt.subplots(2, 1, figsize=(10, 10))
-    fig2.canvas.manager.set_window_title('2D Macroscopic Fields')
+    _safe_set_window_title(fig2, '2D Macroscopic Fields')
 
     V_max = np.max([np.max(V) for V in hist['V']])
     V_min = np.min([np.min(V) for V in hist['V']])
@@ -121,7 +131,7 @@ def _plot_weighting_field(params: SimulationParams2D, plot_cfg: PlottingConfig) 
         return
 
     fig4, ax4 = plt.subplots(figsize=(10, 4))
-    fig4.canvas.manager.set_window_title('Ramo-Shockley: Antenna Sensitivity')
+    _safe_set_window_title(fig4, 'Ramo-Shockley: Antenna Sensitivity')
     colors = ['blue', 'red', 'green', 'orange', 'purple', 'brown']
 
     for a_idx, ant in enumerate(params.antennas):
@@ -159,7 +169,7 @@ def _animate_2d_particles(hist: Dict[str, Any], params: SimulationParams2D, plot
         return
 
     fig3, ax_pos = plt.subplots(figsize=(10, 6))
-    fig3.canvas.manager.set_window_title('2D Kinetics: Particle Positions')
+    _safe_set_window_title(fig3, '2D Kinetics: Particle Positions')
 
     scat_e = ax_pos.scatter([], [], s=12, color='cyan', alpha=0.7, label='Electrons')
     scat_i = ax_pos.scatter([], [], s=16, color='blue', alpha=0.7, label='Ions')
@@ -208,7 +218,7 @@ def _animate_velocity_distribution(hist: Dict[str, Any], plot_cfg: PlottingConfi
         return
 
     fig4, ax_v = plt.subplots(figsize=(10, 4))
-    fig4.canvas.manager.set_window_title('Thermodynamics: Total Velocity Magnitude')
+    _safe_set_window_title(fig4, 'Thermodynamics: Total Velocity Magnitude')
 
     line_ve, = ax_v.plot([], [], lw=2, color='red', drawstyle='steps-mid', label='Electrons')
     line_vi, = ax_v.plot([], [], lw=2, color='blue', drawstyle='steps-mid', label='Ions')
@@ -261,7 +271,7 @@ def _animate_phase_space(hist: Dict[str, Any], params: SimulationParams2D, plot_
         return
 
     fig7, (ax_ps_e, ax_ps_i) = plt.subplots(2, 1, figsize=(10, 9))
-    fig7.canvas.manager.set_window_title('PIC Analysis: Phase Space (x-v)')
+    _safe_set_window_title(fig7, 'PIC Analysis: Phase Space (x-v)')
 
     scat_ps_e = ax_ps_e.scatter([], [], s=1, color='red', alpha=0.3, edgecolors='none')
     ax_ps_e.set_title("Phase Space of Electrons (x, v_{x,e})")

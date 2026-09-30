@@ -4,6 +4,7 @@
 Main runner for 2D PIC Simulation using self-explanatory parameters.
 """
 
+import os
 import time
 import numpy as np
 from dust_impact.physics.constants import e, m_e
@@ -15,7 +16,7 @@ from dust_impact.sim2d.sim_core import DustImpactSimulation2D
 from dust_impact.sim2d.plotting import plot_simulation_results_2d
 
 
-def run_2d_simulation(config_file: str = "config.json", run_calc: bool = True, visualize_results: bool = None):
+def run_2d_simulation(config_file: str = "config.json", output_dir: str = None, plot_only: bool = False, run_calc: bool = True, visualize_results: bool = None):
     V_equilibrium = calculate_equilibrium_potential(ENV_EARTH, MAT_ALUMINIUM)
     V_equilibrium_antenne = calculate_equilibrium_potential(ENV_EARTH, MAT_ALUMINIUM_ANTENNE)
     print(f"=== KROK 1: Rovnovážné nabití ===")
@@ -23,7 +24,7 @@ def run_2d_simulation(config_file: str = "config.json", run_calc: bool = True, v
 
     print(f"Načítám konfiguraci z: {config_file}")
     sim_params, sim_toggles, plot_config = setup_simulation_parameters_2d(
-        V_equilibrium, V_equilibrium_antenne, config_file=config_file
+        V_equilibrium, V_equilibrium_antenne, config_file=config_file, output_dir=output_dir
     )
 
     if visualize_results is not None:
@@ -41,7 +42,7 @@ def run_2d_simulation(config_file: str = "config.json", run_calc: bool = True, v
               f"  -> Rychlé elektrony (1.5*v_th) urazí za krok {v_cfl * sim_params.dt * 1e3:.2f} mm, což přesahuje velikost buňky {dx_min * 1e3:.2f} mm.\n"
               f"  -> Doporučený maximální časový krok: dt <= {dt_max_rec:.2e} s")
 
-    PROVEST_VYPOCET = run_calc and getattr(plot_config, 'run_physical_simulation', True)
+    PROVEST_VYPOCET = (not plot_only) and run_calc and getattr(plot_config, 'run_physical_simulation', True)
 
     if PROVEST_VYPOCET:
         print("\n=== KROK 2: Spouštím fyzikální 2D PIC simulaci ===")
@@ -54,16 +55,33 @@ def run_2d_simulation(config_file: str = "config.json", run_calc: bool = True, v
         print("\n=== KROK 3: Ukládání fyzikálních dat na disk ===")
         save_results_npz(sim_results, plot_config.output_npz_filepath)
     else:
-        print("\n=== KROK 2 & 3: PŘESKOČEN (Simulace vypnuta) ===")
+        if plot_only:
+            print("\n=== KROK 2 & 3: PŘESKOČEN (Aktivován režim --plot-only) ===")
+        else:
+            print("\n=== KROK 2 & 3: PŘESKOČEN (Simulace vypnuta) ===")
 
     if getattr(plot_config, 'show_interactive_gui_windows', True) or getattr(plot_config, 'save_plots_to_disk', False):
         print("\n=== KROK 4: Načítání a Vizualizace ===")
+        if not os.path.exists(plot_config.output_npz_filepath):
+            print(f"[CHYBA] Soubor {plot_config.output_npz_filepath} nebyl nalezen.")
+            if plot_only:
+                print("  -> V režimu --plot-only musí existovat předchozí vypočtená data.")
+            return
+
         try:
             loaded_results = load_results_npz(plot_config.output_npz_filepath)
             plot_simulation_results_2d(loaded_results, sim_params, plot_config)
-        except FileNotFoundError:
-            print(f"[CHYBA] Soubor {plot_config.output_npz_filepath} nebyl nalezen.")
+        except Exception as err:
+            print(f"[CHYBA] Selhalo načtení nebo vykreslení výsledků ze souboru {plot_config.output_npz_filepath}: {err}")
 
 
 if __name__ == "__main__":
-    run_2d_simulation()
+    import argparse
+    parser = argparse.ArgumentParser(description="2D PIC Simulátor dopadu prachu.")
+    parser.add_argument("--config", "-c", type=str, default="config.json", help="Cesta ke konfiguračnímu JSON souboru")
+    parser.add_argument("--output-dir", "-o", type=str, default=None, help="Cílová složka pro uložení všech výstupů")
+    parser.add_argument("--plot-only", action="store_true", default=False, help="Přeskočit PIC výpočet a pouze vygenerovat grafy z existujících dat")
+    args = parser.parse_args()
+
+    run_2d_simulation(config_file=args.config, output_dir=args.output_dir, plot_only=args.plot_only)
+

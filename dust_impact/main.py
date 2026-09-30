@@ -9,15 +9,28 @@ import sys
 import os
 import json
 import argparse
+import time
+from datetime import datetime
+
+# Vynucení neinteraktivního Agg backendu pro matplotlib před importem modulů s pyplot,
+# pokud je explicitně zadán headless režim nebo na serveru bez displaye (X11/Wayland).
+if "--no-visualize" in sys.argv or "--plot-only" in sys.argv or (
+    sys.platform != "win32" and not os.environ.get("DISPLAY") and "--visualize" not in sys.argv
+):
+    import matplotlib
+    matplotlib.use("Agg")
+
 from dust_impact.sim2d.runner import run_2d_simulation
 from dust_impact.sim3d.runner import run_3d_simulation
 
 
-import time
-from datetime import datetime
-
-
-def main(config_file: str = "config.json", dim_override: int = None, visualize_results: bool = None):
+def main(
+    config_file: str = "config.json",
+    output_dir: str = None,
+    plot_only: bool = False,
+    dim_override: int = None,
+    visualize_results: bool = None
+):
     """
     Unified simulation launcher for DustImpact.
 
@@ -25,6 +38,10 @@ def main(config_file: str = "config.json", dim_override: int = None, visualize_r
     -----------
     config_file : str
         Path to unified JSON configuration file.
+    output_dir : str, optional
+        Target directory to redirect all simulation outputs (.npz, .csv, plots, animations).
+    plot_only : bool
+        If True, skip physical simulation and only load and visualize existing results.
     dim_override : int, optional
         Override dimension from CLI (--dim 2 or --dim 3).
     visualize_results : bool, optional
@@ -32,6 +49,10 @@ def main(config_file: str = "config.json", dim_override: int = None, visualize_r
     """
     start_dt = datetime.now()
     t_start = time.perf_counter()
+
+    if visualize_results is False or (visualize_results is None and sys.platform != "win32" and not os.environ.get("DISPLAY")):
+        import matplotlib
+        matplotlib.use("Agg")
 
     if not os.path.exists(config_file):
         alt_config = os.path.join("inputs", "config.json")
@@ -53,15 +74,29 @@ def main(config_file: str = "config.json", dim_override: int = None, visualize_r
     print("=====================================================")
     print(f"   DUSTIMPACT SIMULATOR (Dimenze výpočtu: {dim}D)")
     print(f"   Konfigurační soubor: {config_file}")
+    if output_dir:
+        print(f"   Výstupní adresář: {os.path.abspath(output_dir)}")
+    if plot_only:
+        print(f"   Režim běhu: POUZE VIZUALIZACE (--plot-only)")
     print(f"   Čas zahájení: {start_dt.strftime('%Y-%m-%d %H:%M:%S')}")
     if visualize_results is not None:
-        print(f"   Vizualizace výsledků: {'ZAPNUTA' if visualize_results else 'VYPNUTA'}")
+        print(f"   Interaktivní okna grafů: {'ZAPNUTA' if visualize_results else 'VYPNUTA (headless)'}")
     print("=====================================================\n")
 
     if dim == 2:
-        run_2d_simulation(config_file=config_file, visualize_results=visualize_results)
+        run_2d_simulation(
+            config_file=config_file,
+            output_dir=output_dir,
+            plot_only=plot_only,
+            visualize_results=visualize_results
+        )
     elif dim == 3:
-        run_3d_simulation(config_file=config_file, visualize_results=visualize_results)
+        run_3d_simulation(
+            config_file=config_file,
+            output_dir=output_dir,
+            plot_only=plot_only,
+            visualize_results=visualize_results
+        )
     else:
         raise ValueError(f"Podporované dimenze výpočtu jsou pouze 2 nebo 3 (zadáno: {dim}).")
 
@@ -76,12 +111,25 @@ def main(config_file: str = "config.json", dim_override: int = None, visualize_r
     print("=====================================================")
 
 
-if __name__ == "__main__":
+def cli_entrypoint():
+    """Main CLI entrypoint for terminal execution and console script."""
     parser = argparse.ArgumentParser(description="DustImpact Unified PIC Simulator")
-    parser.add_argument("--config", type=str, default="config.json", help="Path to unified JSON config file")
-    parser.add_argument("--dim", type=int, choices=[2, 3], default=None, help="Override simulation dimension (2 or 3)")
-    parser.add_argument("--visualize", dest="visualize_results", action="store_true", default=None, help="Enable visualization")
-    parser.add_argument("--no-visualize", dest="visualize_results", action="store_false", help="Disable visualization")
+    parser.add_argument("--config", "-c", type=str, default="config.json", help="Cesta ke konfiguračnímu souboru JSON")
+    parser.add_argument("--output-dir", "-o", type=str, default=None, help="Cílová složka pro uložení všech výstupů (.npz, .csv, grafy)")
+    parser.add_argument("--plot-only", action="store_true", default=False, help="Přeskočit fyzikální simulaci a pouze vygenerovat grafy z existujících dat")
+    parser.add_argument("--dim", type=int, choices=[2, 3], default=None, help="Vynutit dimenzi výpočtu (2 nebo 3)")
+    parser.add_argument("--visualize", dest="visualize_results", action="store_true", default=None, help="Zapnout interaktivní okna grafů")
+    parser.add_argument("--no-visualize", dest="visualize_results", action="store_false", help="Vypnout interaktivní okna grafů (headless režim pro servery)")
     args = parser.parse_args()
 
-    main(config_file=args.config, dim_override=args.dim, visualize_results=args.visualize_results)
+    main(
+        config_file=args.config,
+        output_dir=args.output_dir,
+        plot_only=args.plot_only,
+        dim_override=args.dim,
+        visualize_results=args.visualize_results
+    )
+
+
+if __name__ == "__main__":
+    cli_entrypoint()

@@ -123,13 +123,33 @@ class SimulationParams3D(BaseSimulationParams):
             self.q_macro = (self.solar_wind_density_m3 * domain_vol * e) / self.num_macroparticles
 
 
-def setup_simulation_parameters_3d(Vf: float, Vf_antenne: float = 0.0, config_file: str = "config.json") -> Tuple[SimulationParams3D, SimulationToggles3D, PlottingConfig3D]:
+def _resolve_path(base_dir: str, path: str) -> str:
+    """Resolve path relative to config file directory if relative, falling back to CWD."""
+    if not path or os.path.isabs(path):
+        return path
+    candidate = os.path.normpath(os.path.join(base_dir, path))
+    if os.path.exists(candidate):
+        return candidate
+    if os.path.exists(path):
+        return os.path.abspath(path)
+    return candidate
+
+
+def setup_simulation_parameters_3d(
+    Vf: float,
+    Vf_antenne: float = 0.0,
+    config_file: str = "config.json",
+    output_dir: str = None
+) -> Tuple[SimulationParams3D, SimulationToggles3D, PlottingConfig3D]:
     """ Loads configuration for 3D PIC simulation using self-explanatory parameters. """
     if not os.path.exists(config_file) and os.path.exists("inputs/config.json"):
         config_file = "inputs/config.json"
 
     if not os.path.exists(config_file):
         config_file = "config.json"
+
+    config_abs_path = os.path.abspath(config_file)
+    base_dir = os.path.dirname(config_abs_path)
 
     with open(config_file, 'r', encoding='utf-8') as f:
         cfg = json.load(f)
@@ -141,9 +161,24 @@ def setup_simulation_parameters_3d(Vf: float, Vf_antenne: float = 0.0, config_fi
 
     p_kwargs = cfg.get('params', {})
     if 'vtk_files' in p_kwargs and isinstance(p_kwargs['vtk_files'], dict):
+        vtk_data = p_kwargs['vtk_files']
+        if 'spis_background_potential_file' in vtk_data:
+            vtk_data['spis_background_potential_file'] = _resolve_path(base_dir, vtk_data['spis_background_potential_file'])
+        if 'spacecraft_weighting_file' in vtk_data:
+            vtk_data['spacecraft_weighting_file'] = _resolve_path(base_dir, vtk_data['spacecraft_weighting_file'])
+        if 'antenna_weighting_files' in vtk_data and isinstance(vtk_data['antenna_weighting_files'], list):
+            vtk_data['antenna_weighting_files'] = [
+                _resolve_path(base_dir, item) for item in vtk_data['antenna_weighting_files']
+            ]
         valid_vtk_keys = {f.name for f in fields(VTKFilesConfig)}
-        filtered_vtk = {k: v for k, v in p_kwargs['vtk_files'].items() if k in valid_vtk_keys}
+        filtered_vtk = {k: v for k, v in vtk_data.items() if k in valid_vtk_keys}
         p_kwargs['vtk_files'] = VTKFilesConfig(**filtered_vtk)
+    else:
+        vtk_cfg = VTKFilesConfig()
+        vtk_cfg.spis_background_potential_file = _resolve_path(base_dir, vtk_cfg.spis_background_potential_file)
+        vtk_cfg.spacecraft_weighting_file = _resolve_path(base_dir, vtk_cfg.spacecraft_weighting_file)
+        vtk_cfg.antenna_weighting_files = [_resolve_path(base_dir, item) for item in vtk_cfg.antenna_weighting_files]
+        p_kwargs['vtk_files'] = vtk_cfg
 
     valid_param_keys = {f.name for f in fields(SimulationParams3D)}
     filtered_params = {k: v for k, v in p_kwargs.items() if k in valid_param_keys}
@@ -156,4 +191,28 @@ def setup_simulation_parameters_3d(Vf: float, Vf_antenne: float = 0.0, config_fi
     filtered_plot = {k: v for k, v in plot_kwargs.items() if k in valid_plot_keys}
     plot_config = PlottingConfig3D(**filtered_plot)
 
+    output_path_keys = [
+        'output_npz_filepath',
+        'output_csv_filepath',
+        'file_currents',
+        'file_fields_anim',
+        'file_particles_anim',
+        'file_velocity_anim'
+    ]
+
+    if output_dir:
+        abs_output_dir = os.path.abspath(output_dir)
+        os.makedirs(abs_output_dir, exist_ok=True)
+        for key in output_path_keys:
+            val = getattr(plot_config, key, None)
+            if val:
+                fname = os.path.basename(val)
+                setattr(plot_config, key, os.path.join(abs_output_dir, fname))
+    else:
+        for key in output_path_keys:
+            val = getattr(plot_config, key, None)
+            if val:
+                setattr(plot_config, key, _resolve_path(base_dir, val))
+
     return params, toggles, plot_config
+

@@ -148,13 +148,32 @@ class SimulationParams2D(BaseSimulationParams):
             self.q_macro = (self.solar_wind_density_m3 * domain_area * e) / self.num_macroparticles
 
 
-def setup_simulation_parameters_2d(Vf: float, Vf_antenne: float, config_file: str = "config.json") -> Tuple[
-    SimulationParams2D, SimulationToggles2D, PlottingConfig]:
+def _resolve_path(base_dir: str, path: str) -> str:
+    """Resolve path relative to config file directory if relative, falling back to CWD."""
+    if not path or os.path.isabs(path):
+        return path
+    candidate = os.path.normpath(os.path.join(base_dir, path))
+    if os.path.exists(candidate):
+        return candidate
+    if os.path.exists(path):
+        return os.path.abspath(path)
+    return candidate
+
+
+def setup_simulation_parameters_2d(
+    Vf: float,
+    Vf_antenne: float = 0.0,
+    config_file: str = "config.json",
+    output_dir: str = None
+) -> Tuple[SimulationParams2D, SimulationToggles2D, PlottingConfig]:
     if not os.path.exists(config_file) and os.path.exists("inputs/config.json"):
         config_file = "inputs/config.json"
 
     if not os.path.exists(config_file):
         config_file = "config.json"
+
+    config_abs_path = os.path.abspath(config_file)
+    base_dir = os.path.dirname(config_abs_path)
 
     with open(config_file, 'r', encoding='utf-8') as f:
         config_data = json.load(f)
@@ -184,4 +203,30 @@ def setup_simulation_parameters_2d(Vf: float, Vf_antenne: float, config_file: st
     filtered_plot = {k: v for k, v in plot_kwargs.items() if k in valid_plot_keys}
     plot_config = PlottingConfig(**filtered_plot)
 
+    output_path_keys = [
+        'output_npz_filepath',
+        'output_csv_filepath',
+        'file_currents',
+        'file_fields_anim',
+        'file_weighting',
+        'file_particles_anim',
+        'file_velocity_anim',
+        'file_phase_space'
+    ]
+
+    if output_dir:
+        abs_output_dir = os.path.abspath(output_dir)
+        os.makedirs(abs_output_dir, exist_ok=True)
+        for key in output_path_keys:
+            val = getattr(plot_config, key, None)
+            if val:
+                fname = os.path.basename(val)
+                setattr(plot_config, key, os.path.join(abs_output_dir, fname))
+    else:
+        for key in output_path_keys:
+            val = getattr(plot_config, key, None)
+            if val:
+                setattr(plot_config, key, _resolve_path(base_dir, val))
+
     return params, toggles, plot_config
+

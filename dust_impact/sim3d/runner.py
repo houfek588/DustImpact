@@ -4,6 +4,7 @@
 Main runner for 3D PIC Simulation using self-explanatory parameters.
 """
 
+import os
 import argparse
 import time
 import numpy as np
@@ -17,7 +18,7 @@ from dust_impact.sim3d.sim_core import DustImpactSimulation3D
 from dust_impact.sim3d.plotting import plot_simulation_results_3d
 
 
-def run_3d_simulation(config_file: str = "config.json", visualize_results: bool = None):
+def run_3d_simulation(config_file: str = "config.json", output_dir: str = None, plot_only: bool = False, visualize_results: bool = None):
     V_equilibrium = calculate_equilibrium_potential(ENV_EARTH, MAT_ALUMINIUM)
     V_equilibrium_antenne = calculate_equilibrium_potential(ENV_EARTH, MAT_ALUMINIUM_ANTENNE)
 
@@ -26,7 +27,9 @@ def run_3d_simulation(config_file: str = "config.json", visualize_results: bool 
     print(f"Plovoucí potenciál antény: {V_equilibrium_antenne:.3f} V")
 
     print(f"Načítám konfiguraci z: {config_file}")
-    sim_params, sim_toggles, plot_config = setup_simulation_parameters_3d(V_equilibrium, V_equilibrium_antenne, config_file=config_file)
+    sim_params, sim_toggles, plot_config = setup_simulation_parameters_3d(
+        V_equilibrium, V_equilibrium_antenne, config_file=config_file, output_dir=output_dir
+    )
 
     if visualize_results is not None:
         plot_config.show_interactive_gui_windows = visualize_results
@@ -48,7 +51,7 @@ def run_3d_simulation(config_file: str = "config.json", visualize_results: bool 
 
     V_bg, Vw_grids, Ex_bg, Ey_bg, Ez_bg, Ewx, Ewy, Ewz, ant_masks, sc_mask = load_and_interpolate_vtk(sim_params)
 
-    PROVEST_VYPOCET = getattr(plot_config, 'run_physical_simulation', True)
+    PROVEST_VYPOCET = (not plot_only) and getattr(plot_config, 'run_physical_simulation', True)
 
     if PROVEST_VYPOCET:
         print("\n=== KROK 2: Spouštím 3D fyzikální PIC simulaci ===")
@@ -64,10 +67,19 @@ def run_3d_simulation(config_file: str = "config.json", visualize_results: bool 
         print("\n=== KROK 3: Ukládání fyzikálních dat na disk ===")
         save_results_npz(sim_results, plot_config.output_npz_filepath)
     else:
-        print("\n=== KROK 2 & 3: PŘESKOČEN (Fyzikální simulace vypnuta) ===")
+        if plot_only:
+            print("\n=== KROK 2 & 3: PŘESKOČEN (Aktivován režim --plot-only) ===")
+        else:
+            print("\n=== KROK 2 & 3: PŘESKOČEN (Fyzikální simulace vypnuta) ===")
 
     if getattr(plot_config, 'show_interactive_gui_windows', True) or getattr(plot_config, 'save_plots_to_disk', False):
         print("\n=== KROK 4: Načítání a Vizualizace ===")
+        if not os.path.exists(plot_config.output_npz_filepath):
+            print(f"[CHYBA] Soubor {plot_config.output_npz_filepath} nebyl nalezen.")
+            if plot_only:
+                print("  -> V režimu --plot-only musí existovat předchozí vypočtená data.")
+            return
+
         try:
             loaded_results = load_results_npz(plot_config.output_npz_filepath)
             plot_simulation_results_3d(
@@ -75,13 +87,16 @@ def run_3d_simulation(config_file: str = "config.json", visualize_results: bool 
                 V_bg=V_bg, Vw_grids=Vw_grids,
                 spacecraft_mask=sc_mask, antenna_masks=ant_masks
             )
-        except FileNotFoundError:
-            print(f"[CHYBA] Soubor {plot_config.output_npz_filepath} nebyl nalezen.")
+        except Exception as err:
+            print(f"[CHYBA] Selhalo načtení nebo vykreslení výsledků ze souboru {plot_config.output_npz_filepath}: {err}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="3D PIC Simulátor dopadu prachu.")
     parser.add_argument("--config", "-c", type=str, default="config.json", help="Cesta ke konfiguračnímu JSON souboru")
+    parser.add_argument("--output-dir", "-o", type=str, default=None, help="Cílová složka pro uložení všech výstupů")
+    parser.add_argument("--plot-only", action="store_true", default=False, help="Přeskočit PIC výpočet a pouze vygenerovat grafy z existujících dat")
     args = parser.parse_args()
 
-    run_3d_simulation(config_file=args.config)
+    run_3d_simulation(config_file=args.config, output_dir=args.output_dir, plot_only=args.plot_only)
+
