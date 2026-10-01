@@ -160,13 +160,23 @@ dust-impact --config /cesta/k/config.json --output-dir /mnt/results/${SLURM_JOB_
 
 ## 🧪 Spuštění verifikačních testů
 
-Všechny jednotkové i fyzikální testy (zachování náboje, Ramo-Shockleyho teorém, RC obvody, ambipolární kinetika, CLI a přesměrování výstupů) se spouští příkazem:
+Projekt disponuje ucelenou testovací sadou 29 testů pokrývajících:
+1. **Analytickou 3D verifikaci (`test_physics_analytical_3d.py`):**
+   * 3D Ramo-Shockley odezva antény na letící náboj (přesný průběh $I(t)$ a píky proudu).
+   * 3D Poissonův řešič pro Gaussovský nábojový oblak ($V(r) \sim \frac{\text{erf}(r/\sigma)}{r}$).
+   * Metoda vytvořených řešení (MMS) a ověření 2. řádu konvergence $\mathcal{O}(dx^2)$ diferenčního operátoru.
+   * 3D plazmatické Langmuirovy oscilace (FFT spektrum kmitů částic vs. $\omega_{pe}$).
+2. **Fyzikální zákony a obvody (`test_physics_level1.py`, `test_physics_level2.py`):**
+   * Globální zachování náboje v 3D PIC, Debyeovo stínění, analytická odezva RC obvodu antény, ambipolární expanze.
+3. **I/O formáty a ParaView export (`test_io_formats.py`):**
+   * HDF5, NPZ s JSON metadaty, rotující checkpointy a generování `.vti`/`.vtp`/`.pvd`.
 
+Spuštění všech testů:
 ```bash
 python -m unittest discover -s tests
 ```
 
-*Výstupní protokoly a animace z testování se ukládají do složky `outputs/tests/`.*
+*Výstupní protokoly, porovnávací grafy a animace z testování se automaticky ukládají do složky `outputs/tests/`.*
 
 ---
 
