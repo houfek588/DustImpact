@@ -154,7 +154,7 @@ class DustImpactSimulation3D:
 
         self.voltage_ant = np.zeros((self.num_antennas, self.p.steps))
         for a_idx in range(self.num_antennas):
-            if getattr(self.toggles, 'enable_antenna_bias', True):
+            if getattr(self.toggles, 'enable_antenna_bias_voltage', getattr(self.toggles, 'enable_antenna_bias', True)):
                 self.voltage_ant[a_idx, 0] = self.p.V_bias[a_idx]
 
         self.V_self_grid = np.zeros((self.p.Nx, self.p.Ny, self.p.Nz))

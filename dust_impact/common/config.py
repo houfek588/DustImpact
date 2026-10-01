@@ -36,6 +36,9 @@ class BaseSimulationParams:
     solar_wind_electron_temp_eV: float = 15.0
     solar_wind_density_m3: float = 1e7
 
+    # Total impact cloud charge in Coulombs (default: 50 pC)
+    total_impact_charge_C: float = 50e-12
+
     # Plasma cloud injection mode: "point_cloud" (default) or "homogeneous"
     plasma_injection_mode: str = "point_cloud"
 
@@ -60,7 +63,7 @@ class BaseSimulationParams:
             self.spacecraft_voltage_V = float(self.Vf)
         self.m_i = self.ion_mass_amu * amu
         self.debye_length = np.sqrt((eps_0 * self.solar_wind_electron_temp_eV * e) / (self.solar_wind_density_m3 * e ** 2))
-        self.q_macro = 50e-12 / self.num_macroparticles
+        self.q_macro = self.total_impact_charge_C / self.num_macroparticles
         self.steps = int(round(self.simulation_duration_s / self.time_step_s))
         self.time_array = np.linspace(0, self.simulation_duration_s, self.steps)
 

@@ -64,7 +64,7 @@
             0.8,
             0.8
         ],
-        "antenna_mask_radius_m": 0.05,
+        "total_impact_charge_C": 5e-11,
         "antenna_weighting_threshold": 0.5
     },
     "plotting": {
