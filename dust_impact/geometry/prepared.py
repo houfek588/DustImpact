@@ -113,13 +113,18 @@ def build_simulation_geometry(params: Any) -> PreparedGeometry3D:
     Parameters
     ----------
     params : SimulationParams3D
-        Full configuration containing grid parameters and VTK file locations.
+        Full configuration containing grid parameters and geometry/VTK file locations.
 
     Returns
     -------
     PreparedGeometry3D
         Validated container ready for solver instantiation.
     """
+    geom_cfg = getattr(params, 'geometry', None)
+    if geom_cfg is not None and getattr(geom_cfg, 'source', '') == 'analytical':
+        from dust_impact.geometry.analytical import build_analytical_simulation_geometry
+        return build_analytical_simulation_geometry(params, geom_cfg.analytical)
+
     if not HAS_PYVISTA:
         print("[GEOMETRY] PyVista není k dispozici - používám analytický syntetický generátor.")
         raw_fields = generate_synthetic_analytical_fields(params)
@@ -144,19 +149,39 @@ def build_simulation_geometry(params: Any) -> PreparedGeometry3D:
     Nx, Ny, Nz = params.Nx, params.Ny, params.Nz
     dx_min = min(params.dx, params.dy, params.dz)
 
-    bg_file = getattr(params.vtk_files, 'spis_background_potential_file', getattr(params.vtk_files, 'background_potential', ''))
-    sc_file = getattr(params.vtk_files, 'spacecraft_weighting_file', getattr(params.vtk_files, 'spacecraft_weighting', 'inputs/spis_Vw_body.vtk'))
-    ant_files = getattr(params.vtk_files, 'antenna_weighting_files', getattr(params.vtk_files, 'antenna_weighting', []))
+    if geom_cfg is not None and getattr(geom_cfg, 'source', '') == 'spis':
+        spis = geom_cfg.spis
+        bg_file = getattr(spis, 'background_potential_file', '')
+        sc_file = getattr(spis, 'spacecraft_weighting_file', '')
+        ant_files = getattr(spis, 'antenna_weighting_files', [])
+        mesh_file = getattr(spis, 'spacecraft_surface_mesh_file', '')
+        sc_threshold = getattr(spis, 'weighting_threshold', 0.85)
+    else:
+        bg_file = getattr(params.vtk_files, 'spis_background_potential_file', getattr(params.vtk_files, 'background_potential', ''))
+        sc_file = getattr(params.vtk_files, 'spacecraft_weighting_file', getattr(params.vtk_files, 'spacecraft_weighting', 'inputs/spis_Vw_body.vtk'))
+        ant_files = getattr(params.vtk_files, 'antenna_weighting_files', getattr(params.vtk_files, 'antenna_weighting', []))
+        mesh_file = ''
+        sc_threshold = 0.85
 
     # 1. Load spacecraft body geometry and weighting field
     mesh_body = None
     Vw_body = np.zeros((Nx, Ny, Nz))
     spacecraft_mask_3d = np.zeros((Nx, Ny, Nz), dtype=bool)
 
+    # Optional external mesh from Gmsh / STL / VTK
+    if mesh_file and (os.path.exists(mesh_file) or os.path.exists(os.path.join("inputs", mesh_file))):
+        try:
+            mesh_body = read_spis_mesh(mesh_file)
+            print(f"  -> Načtena explicitní povrchová síť tělesa sondy z {mesh_file}.")
+        except Exception as e:
+            print(f"[VAROVÁNÍ] Nelze načíst explicitní síť tělesa sondy z {mesh_file}: {e}")
+
     if sc_file and (os.path.exists(sc_file) or os.path.exists(os.path.join("inputs", sc_file))):
         try:
-            mesh_body = read_spis_mesh(sc_file)
-            sampled_body = pic_grid.sample(mesh_body)
+            sc_mesh = read_spis_mesh(sc_file)
+            if mesh_body is None:
+                mesh_body = sc_mesh
+            sampled_body = pic_grid.sample(sc_mesh)
             pot_body = extract_potential_from_mesh(sampled_body, sc_file)
             Vw_body = pot_body.reshape((Nx, Ny, Nz))
 
@@ -167,7 +192,7 @@ def build_simulation_geometry(params: Any) -> PreparedGeometry3D:
                 Vw_body = Vw_body / vw_peak
 
             spacecraft_mask_3d = extract_enclosed_conductor_mask(
-                mesh_body, pic_grid, Vw_body, dx_min, threshold=0.85
+                mesh_body, pic_grid, Vw_body, dx_min, threshold=sc_threshold
             )
             print(f"  -> Geometrie tělesa sondy načtena z {sc_file} (PyVista select_enclosed_points).")
         except Exception as e:
@@ -304,13 +329,13 @@ def build_simulation_geometry(params: Any) -> PreparedGeometry3D:
                 extracted = True
 
         if not extracted:
-            if i < len(params.antenna_bias_voltage_V):
-                spis_v_bias.append(params.antenna_bias_voltage_V[i])
-                print(f"  -> Anténa {i + 1}: Používám zadaný potenciál z parametrů: {params.antenna_bias_voltage_V[i]:.3f} V")
-            elif i < len(Vw_grids) and np.any(antenna_masks_3d[i]) and np.any(V_bg_grid != 0.0):
+            if i < len(Vw_grids) and np.any(antenna_masks_3d[i]) and np.any(V_bg_grid != 0.0):
                 v_ant_val = float(np.nanmax(V_bg_grid[antenna_masks_3d[i]]))
                 spis_v_bias.append(v_ant_val)
                 print(f"  -> Anténa {i + 1}: Rovnovážný potenciál načten z mřížky: {v_ant_val:.3f} V")
+            elif i < len(params.antenna_bias_voltage_V) and params.antenna_bias_voltage_V[i] != 0.0:
+                spis_v_bias.append(params.antenna_bias_voltage_V[i])
+                print(f"  -> Anténa {i + 1}: Používám zadaný potenciál z parametrů: {params.antenna_bias_voltage_V[i]:.3f} V")
             else:
                 v_f_ant = getattr(params, 'Vf_antenne', 0.0)
                 spis_v_bias.append(v_f_ant)

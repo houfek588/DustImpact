@@ -1,4 +1,18 @@
 {
+    "geometry": {
+        "source": "spis",
+        "spis": {
+            "background_potential_file": "inputs/spis_V_bg.vtk",
+            "spacecraft_weighting_file": "inputs/spis_Vw_body.vtk",
+            "antenna_weighting_files": [
+                "inputs/spis_Vw_ant1.vtk",
+                "inputs/spis_Vw_ant2.vtk",
+                "inputs/spis_Vw_ant3.vtk"
+            ],
+            "spacecraft_surface_mesh_file": "",
+            "weighting_threshold": 0.85
+        }
+    },
     "toggles": {
         "enable_spis_background_field": true,
         "enable_plasma_self_field": true,
@@ -7,15 +21,6 @@
         "enable_antenna_bias_voltage": true
     },
     "params": {
-        "vtk_files": {
-            "spis_background_potential_file": "inputs/spis_V_bg.vtk",
-            "spacecraft_weighting_file": "inputs/spis_Vw_body.vtk",
-            "antenna_weighting_files": [
-                "inputs/spis_Vw_ant1.vtk",
-                "inputs/spis_Vw_ant2.vtk",
-                "inputs/spis_Vw_ant3.vtk"
-            ]
-        },
         "ion_mass_amu": 27.0,
         "impact_cloud_temperature_eV": 2.0,
         "solar_wind_electron_temp_eV": 15.0,
@@ -51,11 +56,6 @@
             100000.0,
             100000.0,
             100000.0
-        ],
-        "antenna_bias_voltage_V": [
-            8.0231,
-            8.0231,
-            8.0231
         ],
         "antenna_collection_efficiency": [
             0.8,

@@ -224,6 +224,206 @@ def compute_surface_normal_from_potential(
     return np.array([-0.7071, 0.7071, 0.0])
 
 
+def intersect_ray_sphere(
+    p_start: np.ndarray,
+    dir_u: np.ndarray,
+    center: Sequence[float] = (0.0, 0.0, 0.0),
+    radius: float = 1.0
+) -> Optional[Tuple[np.ndarray, np.ndarray, float]]:
+    """
+    Exact analytical intersection of ray P(t) = P0 + t * dir_u (t > 0) with a sphere.
+
+    Returns
+    -------
+    Optional[Tuple[np.ndarray, np.ndarray, float]]
+        (hit_point, outward_normal, distance_t) or None if no hit.
+    """
+    c = np.array(center, dtype=float)
+    m = p_start - c
+    b = float(np.dot(m, dir_u))
+    c_val = float(np.dot(m, m) - radius ** 2)
+    disc = b ** 2 - c_val
+
+    if disc < 0.0:
+        return None
+
+    sqrt_disc = np.sqrt(disc)
+    t1 = -b - sqrt_disc
+    t2 = -b + sqrt_disc
+
+    t = None
+    if t1 > 1e-9:
+        t = t1
+    elif t2 > 1e-9:
+        t = t2
+
+    if t is None:
+        return None
+
+    hit_pt = p_start + t * dir_u
+    normal = (hit_pt - c) / radius
+    n_len = np.linalg.norm(normal)
+    if n_len > 1e-9:
+        normal = normal / n_len
+    return hit_pt, normal, t
+
+
+def intersect_ray_box(
+    p_start: np.ndarray,
+    dir_u: np.ndarray,
+    min_bounds: Sequence[float],
+    max_bounds: Sequence[float]
+) -> Optional[Tuple[np.ndarray, np.ndarray, float]]:
+    """
+    Exact analytical intersection of ray with an axis-aligned bounding box (Kay-Kajiya slab method).
+    """
+    b_min = np.array(min_bounds, dtype=float)
+    b_max = np.array(max_bounds, dtype=float)
+
+    t_enter = -1e30
+    t_exit = 1e30
+    normal_enter = np.zeros(3)
+
+    for i in range(3):
+        if abs(dir_u[i]) < 1e-12:
+            if p_start[i] < b_min[i] or p_start[i] > b_max[i]:
+                return None
+        else:
+            t1 = (b_min[i] - p_start[i]) / dir_u[i]
+            t2 = (b_max[i] - p_start[i]) / dir_u[i]
+            norm1 = np.zeros(3)
+            norm1[i] = -1.0
+            norm2 = np.zeros(3)
+            norm2[i] = 1.0
+
+            if t1 > t2:
+                t1, t2 = t2, t1
+                norm1, norm2 = norm2, norm1
+
+            if t1 > t_enter:
+                t_enter = t1
+                normal_enter = norm1
+
+            if t2 < t_exit:
+                t_exit = t2
+
+            if t_enter > t_exit or t_exit < 1e-9:
+                return None
+
+    t = t_enter if t_enter > 1e-9 else t_exit
+    if t < 1e-9:
+        return None
+
+    hit_pt = p_start + t * dir_u
+    return hit_pt, normal_enter, t
+
+
+def intersect_ray_cylinder(
+    p_start: np.ndarray,
+    dir_u: np.ndarray,
+    p1: Sequence[float],
+    p2: Sequence[float],
+    radius: float
+) -> Optional[Tuple[np.ndarray, np.ndarray, float]]:
+    """
+    Exact analytical intersection of ray with a finite cylinder between p1 and p2.
+    """
+    p1 = np.array(p1, dtype=float)
+    p2 = np.array(p2, dtype=float)
+    axis = p2 - p1
+    axis_len = np.linalg.norm(axis)
+    if axis_len < 1e-9:
+        return intersect_ray_sphere(p_start, dir_u, center=p1, radius=radius)
+
+    a_hat = axis / axis_len
+    r_sq = radius ** 2
+
+    # Infinite cylinder intersection
+    m = p_start - p1
+    d_proj = dir_u - np.dot(dir_u, a_hat) * a_hat
+    m_proj = m - np.dot(m, a_hat) * a_hat
+
+    A = float(np.dot(d_proj, d_proj))
+    B = 2.0 * float(np.dot(d_proj, m_proj))
+    C = float(np.dot(m_proj, m_proj) - r_sq)
+
+    candidates = []
+
+    if A > 1e-12:
+        disc = B ** 2 - 4.0 * A * C
+        if disc >= 0.0:
+            sqrt_disc = np.sqrt(disc)
+            for t_cand in [(-B - sqrt_disc) / (2.0 * A), (-B + sqrt_disc) / (2.0 * A)]:
+                if t_cand > 1e-9:
+                    hit_pt = p_start + t_cand * dir_u
+                    h = float(np.dot(hit_pt - p1, a_hat))
+                    if 0.0 <= h <= axis_len:
+                        axis_pt = p1 + h * a_hat
+                        norm = (hit_pt - axis_pt) / radius
+                        norm /= np.linalg.norm(norm)
+                        candidates.append((hit_pt, norm, t_cand))
+
+    # Caps (disks at p1 and p2)
+    for cap_pt, cap_norm in [(p1, -a_hat), (p2, a_hat)]:
+        denom = float(np.dot(dir_u, cap_norm))
+        if abs(denom) > 1e-12:
+            t_cap = float(np.dot(cap_pt - p_start, cap_norm)) / denom
+            if t_cap > 1e-9:
+                hit_pt = p_start + t_cap * dir_u
+                if np.linalg.norm(hit_pt - cap_pt) <= radius:
+                    candidates.append((hit_pt, cap_norm, t_cap))
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda c: c[2])
+    return candidates[0]
+
+
+def intersect_ray_analytical_spacecraft(
+    p_start: np.ndarray,
+    dir_u: np.ndarray,
+    sc_part: Any
+) -> Optional[Tuple[np.ndarray, np.ndarray, float]]:
+    """
+    Computes exact analytical intersection of ray with an analytical spacecraft (primitive or composite).
+    """
+    sc_type = getattr(sc_part, 'type', 'sphere').lower()
+
+    if sc_type == 'composite':
+        parts = getattr(sc_part, 'parts', [])
+        best_hit = None
+        for p in parts:
+            hit = intersect_ray_analytical_spacecraft(p_start, dir_u, p)
+            if hit is not None:
+                if best_hit is None or hit[2] < best_hit[2]:
+                    best_hit = hit
+        return best_hit
+
+    if sc_type == 'sphere':
+        center = getattr(sc_part, 'center', [0.0, 0.0, 0.0])
+        radius = getattr(sc_part, 'radius', 1.0)
+        return intersect_ray_sphere(p_start, dir_u, center=center, radius=radius)
+
+    if sc_type in ['box', 'cube']:
+        center = np.array(getattr(sc_part, 'center', [0.0, 0.0, 0.0]), dtype=float)
+        side_l = getattr(sc_part, 'side_length', None)
+        if side_l is not None:
+            dims = np.array([side_l, side_l, side_l], dtype=float)
+        else:
+            dims = np.array(getattr(sc_part, 'dimensions', [1.0, 1.0, 1.0]), dtype=float)
+        half_dims = 0.5 * dims
+        return intersect_ray_box(p_start, dir_u, center - half_dims, center + half_dims)
+
+    if sc_type == 'cylinder':
+        p1 = getattr(sc_part, 'p_start', [0.0, 0.0, -1.0])
+        p2 = getattr(sc_part, 'p_end', [0.0, 0.0, 1.0])
+        radius = getattr(sc_part, 'radius', 0.5)
+        return intersect_ray_cylinder(p_start, dir_u, p1, p2, radius)
+
+    return None
+
+
 def compute_impact_intersection_and_normal(
     params: Any,
     Vw_body: np.ndarray,
@@ -274,9 +474,22 @@ def compute_impact_intersection_and_normal(
 
     # 2. Non-zero direction vector: calculate ray intersection with spacecraft surface
     dir_u = v_dir / v_norm
-    intersection_point, normal_vector = ray_trace_mesh(mesh_body, P_start, dir_u, max_dist=100.0)
+    intersection_point = None
+    normal_vector = None
 
-    # Grid step ray-casting fallback if PyVista ray_trace didn't return point
+    # Analytical intersection if geometry source is analytical
+    if hasattr(params, 'geometry') and getattr(params.geometry, 'source', '') == 'analytical':
+        sc_part = getattr(params.geometry.analytical, 'spacecraft', None)
+        if sc_part is not None:
+            ana_hit = intersect_ray_analytical_spacecraft(P_start, dir_u, sc_part)
+            if ana_hit is not None:
+                intersection_point, normal_vector, _ = ana_hit
+
+    # Analytical ray_trace via PyVista mesh_body if available
+    if intersection_point is None and mesh_body is not None:
+        intersection_point, normal_vector = ray_trace_mesh(mesh_body, P_start, dir_u, max_dist=100.0)
+
+    # Grid step ray-casting fallback if mesh / analytical didn't return point
     if intersection_point is None:
         max_dist = 2.0 * max(params.L_x, params.L_y, params.L_z)
         intersection_point = ray_march_voxel_grid(

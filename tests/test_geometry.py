@@ -236,5 +236,203 @@ class TestPreparedGeometryAndIntegration(unittest.TestCase):
         self.assertEqual(sim.spacecraft_mask_3d.shape, (12, 12, 12))
 
 
+    def test_exact_ray_intersections(self):
+        from dust_impact.geometry import (
+            intersect_ray_sphere,
+            intersect_ray_box,
+            intersect_ray_cylinder,
+            intersect_ray_analytical_spacecraft
+        )
+        from dust_impact.sim3d.config_loader import AnalyticalSpacecraftPart
+
+        # 1. Sphere hit
+        p_start = np.array([-3.0, 0.0, 0.0])
+        dir_u = np.array([1.0, 0.0, 0.0])
+        hit = intersect_ray_sphere(p_start, dir_u, center=(0, 0, 0), radius=1.0)
+        self.assertIsNotNone(hit)
+        hit_pt, norm, dist = hit
+        np.testing.assert_allclose(hit_pt, [-1.0, 0.0, 0.0], atol=1e-7)
+        np.testing.assert_allclose(norm, [-1.0, 0.0, 0.0], atol=1e-7)
+        self.assertAlmostEqual(dist, 2.0, places=6)
+
+        # 2. Box hit
+        hit_box = intersect_ray_box(p_start, dir_u, min_bounds=[-0.5, -0.5, -0.5], max_bounds=[0.5, 0.5, 0.5])
+        self.assertIsNotNone(hit_box)
+        hit_pt, norm, dist = hit_box
+        np.testing.assert_allclose(hit_pt, [-0.5, 0.0, 0.0], atol=1e-7)
+        np.testing.assert_allclose(norm, [-1.0, 0.0, 0.0], atol=1e-7)
+
+        # 3. Cylinder hit
+        p_cyl_start = np.array([0.0, -3.0, 0.0])
+        dir_cyl = np.array([0.0, 1.0, 0.0])
+        hit_cyl = intersect_ray_cylinder(p_cyl_start, dir_cyl, p1=[0, 0, -1], p2=[0, 0, 1], radius=0.5)
+        self.assertIsNotNone(hit_cyl)
+        hit_pt, norm, dist = hit_cyl
+        np.testing.assert_allclose(hit_pt, [0.0, -0.5, 0.0], atol=1e-7)
+        np.testing.assert_allclose(norm, [0.0, -1.0, 0.0], atol=1e-7)
+
+        # 4. Composite spacecraft part
+        composite = AnalyticalSpacecraftPart(
+            type="composite",
+            parts=[
+                AnalyticalSpacecraftPart(type="box", center=[0, 0, 0], dimensions=[1, 1, 1]),
+                AnalyticalSpacecraftPart(type="sphere", center=[2, 0, 0], radius=0.5)
+            ]
+        )
+        hit_comp = intersect_ray_analytical_spacecraft(p_start, dir_u, composite)
+        self.assertIsNotNone(hit_comp)
+        np.testing.assert_allclose(hit_comp[0], [-0.5, 0.0, 0.0], atol=1e-7)
+
+    def test_analytical_laplace_solver_fields(self):
+        from dust_impact.geometry import solve_laplace_dirichlet_3d
+        N = 15
+        dx = 0.5
+        dirichlet_mask = np.zeros((N, N, N), dtype=bool)
+        center_idx = N // 2
+        dirichlet_mask[center_idx, center_idx, center_idx] = True
+
+        rhs = np.zeros((N, N, N), dtype=float)
+        rhs[center_idx, center_idx, center_idx] = 10.0
+
+        solutions = solve_laplace_dirichlet_3d(
+            N, N, N, dx, dx, dx,
+            dirichlet_mask=dirichlet_mask,
+            rhs_values=[rhs]
+        )
+        self.assertEqual(len(solutions), 1)
+        V = solutions[0]
+        self.assertAlmostEqual(V[center_idx, center_idx, center_idx], 10.0, places=4)
+        # Potential decays away from center
+        self.assertLess(V[center_idx + 2, center_idx, center_idx], 10.0)
+        self.assertGreater(V[center_idx + 2, center_idx, center_idx], 0.0)
+
+    def test_build_analytical_simulation_geometry_sphere_and_box(self):
+        from dust_impact.sim3d.config_loader import (
+            GeometryConfig, AnalyticalGeometryConfig, AnalyticalSpacecraftPart, AnalyticalAntennaGeometry
+        )
+        params = SimulationParams3D(
+            domain_half_length_x_m=3.0,
+            domain_half_length_y_m=3.0,
+            domain_half_length_z_m=3.0,
+            grid_nodes_x=16,
+            grid_nodes_y=16,
+            grid_nodes_z=16,
+            impact_location_xyz_m=[-2.5, 0.0, 0.0],
+            impact_direction_vector=[1.0, 0.0, 0.0],
+            geometry=GeometryConfig(
+                source="analytical",
+                analytical=AnalyticalGeometryConfig(
+                    spacecraft=AnalyticalSpacecraftPart(type="sphere", center=[0, 0, 0], radius=1.0),
+                    antennas=[
+                        AnalyticalAntennaGeometry(p_start=[0, 1, 0], p_end=[0, 2.5, 0], radius=0.05),
+                        AnalyticalAntennaGeometry(p_start=[0, -1, 0], p_end=[0, -2.5, 0], radius=0.05)
+                    ]
+                )
+            )
+        )
+
+        prep = build_simulation_geometry(params)
+        self.assertIsInstance(prep, PreparedGeometry3D)
+        self.assertEqual(prep.num_antennas, 2)
+        # Impact point exactly at [-1, 0, 0]
+        np.testing.assert_allclose(prep.impact_pos, [-1.0, 0.0, 0.0], atol=1e-6)
+        np.testing.assert_allclose(prep.impact_normal, [-1.0, 0.0, 0.0], atol=1e-6)
+        # Weighting field Vw inside antenna 1 is 1.0, inside antenna 2 is 0.0
+        self.assertEqual(len(prep.Vw_grids), 2)
+        self.assertAlmostEqual(np.max(prep.Vw_grids[0]), 1.0, places=4)
+
+    def test_config_loader_analytical_geometry(self):
+        from dust_impact.sim3d.config_loader import setup_simulation_parameters_3d
+        params, toggles, plot_cfg = setup_simulation_parameters_3d(
+            Vf=10.0,
+            config_file="inputs/config_analytical_sphere.json"
+        )
+        self.assertEqual(params.geometry.source, "analytical")
+        self.assertEqual(params.geometry.analytical.spacecraft.type, "sphere")
+        self.assertEqual(len(params.geometry.analytical.antennas), 3)
+        self.assertEqual(params.geometry.analytical.antennas[0].voltage_V, 5.0)
+        self.assertEqual(params.geometry.analytical.antennas[1].voltage_V, -5.0)
+        self.assertEqual(params.geometry.analytical.antennas[2].voltage_V, 0.0)
+        self.assertEqual(params.antenna_bias_voltage_V, [5.0, -5.0, 0.0])
+        self.assertEqual(params.V_bias, [5.0, -5.0, 0.0])
+
+    def test_analytical_antenna_voltage_specification(self):
+        from dust_impact.sim3d.config_loader import (
+            GeometryConfig, AnalyticalGeometryConfig, AnalyticalSpacecraftPart, AnalyticalAntennaGeometry
+        )
+        params = SimulationParams3D(
+            domain_half_length_x_m=3.0,
+            domain_half_length_y_m=3.0,
+            domain_half_length_z_m=3.0,
+            grid_nodes_x=16,
+            grid_nodes_y=16,
+            grid_nodes_z=16,
+            spacecraft_voltage_V=15.0,
+            impact_location_xyz_m=[-2.5, 0.0, 0.0],
+            impact_direction_vector=[1.0, 0.0, 0.0],
+            geometry=GeometryConfig(
+                source="analytical",
+                analytical=AnalyticalGeometryConfig(
+                    spacecraft=AnalyticalSpacecraftPart(type="sphere", center=[0, 0, 0], radius=1.0),
+                    antennas=[
+                        AnalyticalAntennaGeometry(p_start=[0, 1.0, 0], p_end=[0, 2.5, 0], radius=0.05, voltage_V=8.0),
+                        AnalyticalAntennaGeometry(p_start=[0, -1.0, 0], p_end=[0, -2.5, 0], radius=0.05, voltage_V=-4.0)
+                    ]
+                )
+            )
+        )
+
+        self.assertEqual(params.antenna_bias_voltage_V, [8.0, -4.0])
+        self.assertEqual(params.V_bias, [8.0, -4.0])
+
+        prep = build_simulation_geometry(params)
+        self.assertEqual(params.antenna_bias_voltage_V, [8.0, -4.0])
+        self.assertEqual(params.V_bias, [8.0, -4.0])
+
+        # V_bg on spacecraft (center) is V_sc = 15.0
+        center_idx = params.grid_nodes_x // 2
+        self.assertAlmostEqual(prep.V_bg[center_idx, center_idx, center_idx], 15.0, places=3)
+
+        # Inside antenna 1 ([0, 1.8, 0]), V_bg is 8.0 V
+        # Inside antenna 2 ([0, -1.8, 0]), V_bg is -4.0 V
+        idx_y_ant1 = int(round((1.8 - params.y_grid[0]) / params.dy))
+        idx_y_ant2 = int(round((-1.8 - params.y_grid[0]) / params.dy))
+        self.assertAlmostEqual(prep.V_bg[center_idx, idx_y_ant1, center_idx], 8.0, places=3)
+        self.assertAlmostEqual(prep.V_bg[center_idx, idx_y_ant2, center_idx], -4.0, places=3)
+
+    def test_analytical_antenna_voltage_omitted_defaults_to_zero(self):
+        from dust_impact.sim3d.config_loader import (
+            GeometryConfig, AnalyticalGeometryConfig, AnalyticalSpacecraftPart, AnalyticalAntennaGeometry
+        )
+        ant = AnalyticalAntennaGeometry(p_start=[0, 1.0, 0], p_end=[0, 2.5, 0], radius=0.05)
+        self.assertEqual(ant.voltage_V, 0.0)
+        self.assertEqual(ant.effective_voltage, 0.0)
+
+        params = SimulationParams3D(
+            domain_half_length_x_m=3.0,
+            domain_half_length_y_m=3.0,
+            domain_half_length_z_m=3.0,
+            grid_nodes_x=16,
+            grid_nodes_y=16,
+            grid_nodes_z=16,
+            spacecraft_voltage_V=10.0,
+            geometry=GeometryConfig(
+                source="analytical",
+                analytical=AnalyticalGeometryConfig(
+                    spacecraft=AnalyticalSpacecraftPart(type="sphere", center=[0, 0, 0], radius=1.0),
+                    antennas=[ant]
+                )
+            )
+        )
+        self.assertEqual(params.antenna_bias_voltage_V, [0.0])
+        self.assertEqual(params.V_bias, [0.0])
+
+        prep = build_simulation_geometry(params)
+        self.assertEqual(params.antenna_bias_voltage_V, [0.0])
+        center_idx = params.grid_nodes_x // 2
+        idx_y_ant = int(round((1.8 - params.y_grid[0]) / params.dy))
+        self.assertAlmostEqual(prep.V_bg[center_idx, idx_y_ant, center_idx], 0.0, places=3)
+
+
 if __name__ == '__main__':
     unittest.main()

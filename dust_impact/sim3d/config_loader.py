@@ -7,7 +7,7 @@ import os
 import json
 import numpy as np
 from dataclasses import dataclass, field, asdict, fields
-from typing import Tuple, List, Dict, Any
+from typing import Tuple, List, Dict, Any, Optional
 from dust_impact.physics.constants import amu, e, m_e, eps_0
 from dust_impact.common.io import ensure_dir
 
@@ -18,6 +18,68 @@ from dust_impact.common.config import BaseSimulationParams, BaseSimulationToggle
 @dataclass
 class SimulationToggles3D(BaseSimulationToggles):
     pass
+
+
+@dataclass
+class SpisGeometryConfig:
+    background_potential_file: str = "inputs/spis_V_bg.vtk"
+    spacecraft_weighting_file: str = "inputs/spis_Vw_body.vtk"
+    antenna_weighting_files: List[str] = field(default_factory=lambda: [
+        "inputs/spis_Vw_ant1.vtk",
+        "inputs/spis_Vw_ant2.vtk",
+        "inputs/spis_Vw_ant3.vtk"
+    ])
+    spacecraft_surface_mesh_file: str = ""
+    weighting_threshold: float = 0.85
+
+    @property
+    def spis_background_potential_file(self) -> str:
+        return self.background_potential_file
+
+
+@dataclass
+class AnalyticalSpacecraftPart:
+    type: str = "sphere"  # "sphere", "box", "cube", "cylinder", "composite"
+    center: List[float] = field(default_factory=lambda: [0.0, 0.0, 0.0])
+    radius: float = 1.0
+    dimensions: List[float] = field(default_factory=lambda: [1.0, 1.0, 1.0])
+    side_length: Optional[float] = None
+    p_start: List[float] = field(default_factory=lambda: [0.0, 0.0, -1.0])
+    p_end: List[float] = field(default_factory=lambda: [0.0, 0.0, 1.0])
+    parts: List['AnalyticalSpacecraftPart'] = field(default_factory=list)
+
+
+@dataclass
+class AnalyticalAntennaGeometry:
+    p_start: List[float] = field(default_factory=lambda: [0.0, 0.0, 0.0])
+    p_end: List[float] = field(default_factory=lambda: [1.0, 0.0, 0.0])
+    radius: float = 0.015
+    voltage_V: Optional[float] = 0.0
+    potential_V: Optional[float] = None
+    bias_voltage_V: Optional[float] = None
+
+    @property
+    def effective_voltage(self) -> float:
+        if self.potential_V is not None:
+            return float(self.potential_V)
+        if self.bias_voltage_V is not None:
+            return float(self.bias_voltage_V)
+        if self.voltage_V is not None:
+            return float(self.voltage_V)
+        return 0.0
+
+
+@dataclass
+class AnalyticalGeometryConfig:
+    spacecraft: AnalyticalSpacecraftPart = field(default_factory=AnalyticalSpacecraftPart)
+    antennas: List[AnalyticalAntennaGeometry] = field(default_factory=list)
+
+
+@dataclass
+class GeometryConfig:
+    source: str = "spis"  # "spis" | "analytical"
+    spis: SpisGeometryConfig = field(default_factory=SpisGeometryConfig)
+    analytical: AnalyticalGeometryConfig = field(default_factory=AnalyticalGeometryConfig)
 
 
 @dataclass
@@ -68,6 +130,7 @@ class PlottingConfig3D:
 
 @dataclass
 class SimulationParams3D(BaseSimulationParams):
+    geometry: GeometryConfig = field(default_factory=GeometryConfig)
     vtk_files: VTKFilesConfig = field(default_factory=VTKFilesConfig)
 
     domain_half_length_x_m: float = 5.0
@@ -84,7 +147,7 @@ class SimulationParams3D(BaseSimulationParams):
 
     antenna_capacitance_F: List[float] = field(default_factory=lambda: [2e-12, 2e-12, 2e-12])
     antenna_resistance_Ohm: List[float] = field(default_factory=lambda: [100e3, 100e3, 100e3])
-    antenna_bias_voltage_V: List[float] = field(default_factory=lambda: [0.0, 0.0, 0.0])
+    antenna_bias_voltage_V: List[float] = field(default_factory=list)
     antenna_collection_efficiency: List[float] = field(default_factory=lambda: [0.8, 0.8, 0.8])
     antenna_weighting_threshold: float = 0.2
 
@@ -111,6 +174,33 @@ class SimulationParams3D(BaseSimulationParams):
 
     def __post_init__(self):
         self._init_base_derived_params()
+
+        # Synchronize geometry and vtk_files for bidirectional compatibility
+        if getattr(self.geometry, 'source', 'spis') == 'spis':
+            default_sc = "inputs/spis_Vw_body.vtk"
+            default_bg = "inputs/spis_V_bg.vtk"
+            # If vtk_files was customized, sync to geometry.spis
+            if (getattr(self.vtk_files, 'spacecraft_weighting_file', '') != default_sc or
+                getattr(self.vtk_files, 'spis_background_potential_file', '') != default_bg):
+                self.geometry.spis.spacecraft_weighting_file = self.vtk_files.spacecraft_weighting_file
+                self.geometry.spis.background_potential_file = self.vtk_files.spis_background_potential_file
+                self.geometry.spis.antenna_weighting_files = self.vtk_files.antenna_weighting_files
+            else:
+                self.vtk_files.spacecraft_weighting_file = self.geometry.spis.spacecraft_weighting_file
+                self.vtk_files.spis_background_potential_file = self.geometry.spis.background_potential_file
+                self.vtk_files.antenna_weighting_files = self.geometry.spis.antenna_weighting_files
+
+            if not self.antenna_bias_voltage_V:
+                self.antenna_bias_voltage_V = [0.0] * len(self.antenna_capacitance_F)
+        elif getattr(self.geometry, 'source', 'spis') == 'analytical':
+            ant_geoms = getattr(getattr(self.geometry, 'analytical', None), 'antennas', [])
+            if ant_geoms:
+                self.antenna_bias_voltage_V = [
+                    float(getattr(a, 'effective_voltage', 0.0))
+                    for a in ant_geoms
+                ]
+            elif not self.antenna_bias_voltage_V:
+                self.antenna_bias_voltage_V = [0.0] * len(self.antenna_capacitance_F)
 
         self.x_grid = np.linspace(-self.domain_half_length_x_m, self.domain_half_length_x_m, self.grid_nodes_x)
         self.y_grid = np.linspace(-self.domain_half_length_y_m, self.domain_half_length_y_m, self.grid_nodes_y)
@@ -174,27 +264,107 @@ def setup_simulation_parameters_3d(
     toggles = SimulationToggles3D(**filtered_toggles)
 
     p_kwargs = cfg.get('params', {})
-    if 'vtk_files' in p_kwargs and isinstance(p_kwargs['vtk_files'], dict):
+
+    # Parse geometry configuration (top-level "geometry" or inside "params.geometry")
+    geom_data = cfg.get('geometry', p_kwargs.get('geometry', None))
+    if geom_data and isinstance(geom_data, dict):
+        source = str(geom_data.get('source', 'spis')).lower()
+        if source == 'analytical':
+            ana_data = geom_data.get('analytical', {})
+            sc_data = ana_data.get('spacecraft', {})
+            parts_list = []
+            if 'parts' in sc_data and isinstance(sc_data['parts'], list):
+                for p in sc_data['parts']:
+                    parts_list.append(AnalyticalSpacecraftPart(
+                        **{k: v for k, v in p.items() if k in {f.name for f in fields(AnalyticalSpacecraftPart)}}
+                    ))
+            sc_kwargs = {k: v for k, v in sc_data.items() if k in {f.name for f in fields(AnalyticalSpacecraftPart)} and k != 'parts'}
+            sc_part = AnalyticalSpacecraftPart(parts=parts_list, **sc_kwargs)
+
+            ant_list = []
+            extracted_voltages = []
+            for a in ana_data.get('antennas', []):
+                v_val = a.get('voltage_V', a.get('potential_V', a.get('bias_voltage_V', a.get('voltage', a.get('potential', None)))))
+                v_float = float(v_val) if v_val is not None else 0.0
+                ant_obj = AnalyticalAntennaGeometry(
+                    p_start=a.get('p_start', [0.0, 0.0, 0.0]),
+                    p_end=a.get('p_end', [1.0, 0.0, 0.0]),
+                    radius=float(a.get('radius', 0.015)),
+                    voltage_V=v_float,
+                    potential_V=v_float,
+                    bias_voltage_V=v_float
+                )
+                ant_list.append(ant_obj)
+                extracted_voltages.append(v_float)
+
+            p_kwargs['antenna_bias_voltage_V'] = extracted_voltages
+
+            geom_config = GeometryConfig(
+                source='analytical',
+                analytical=AnalyticalGeometryConfig(spacecraft=sc_part, antennas=ant_list)
+            )
+            p_kwargs['geometry'] = geom_config
+            p_kwargs['vtk_files'] = VTKFilesConfig(
+                spis_background_potential_file="",
+                spacecraft_weighting_file="",
+                antenna_weighting_files=[]
+            )
+        else:
+            spis_data = geom_data.get('spis', {})
+            bg_f = _resolve_path(base_dir, spis_data.get('background_potential_file', spis_data.get('spis_background_potential_file', 'inputs/spis_V_bg.vtk')))
+            sc_f = _resolve_path(base_dir, spis_data.get('spacecraft_weighting_file', 'inputs/spis_Vw_body.vtk'))
+            ant_fs = [_resolve_path(base_dir, item) for item in spis_data.get('antenna_weighting_files', [])]
+            mesh_f = _resolve_path(base_dir, spis_data.get('spacecraft_surface_mesh_file', ''))
+            thresh = float(spis_data.get('weighting_threshold', 0.85))
+
+            spis_cfg = SpisGeometryConfig(
+                background_potential_file=bg_f,
+                spacecraft_weighting_file=sc_f,
+                antenna_weighting_files=ant_fs,
+                spacecraft_surface_mesh_file=mesh_f,
+                weighting_threshold=thresh
+            )
+            p_kwargs['geometry'] = GeometryConfig(source='spis', spis=spis_cfg)
+            p_kwargs['vtk_files'] = VTKFilesConfig(
+                spis_background_potential_file=bg_f,
+                spacecraft_weighting_file=sc_f,
+                antenna_weighting_files=ant_fs
+            )
+    elif 'vtk_files' in p_kwargs and isinstance(p_kwargs['vtk_files'], dict):
         vtk_data = p_kwargs['vtk_files']
-        if 'spis_background_potential_file' in vtk_data:
-            vtk_data['spis_background_potential_file'] = _resolve_path(base_dir, vtk_data['spis_background_potential_file'])
-        if 'spacecraft_weighting_file' in vtk_data:
-            vtk_data['spacecraft_weighting_file'] = _resolve_path(base_dir, vtk_data['spacecraft_weighting_file'])
-        if 'antenna_weighting_files' in vtk_data and isinstance(vtk_data['antenna_weighting_files'], list):
-            vtk_data['antenna_weighting_files'] = [
-                _resolve_path(base_dir, item) for item in vtk_data['antenna_weighting_files']
-            ]
-        valid_vtk_keys = {f.name for f in fields(VTKFilesConfig)}
-        filtered_vtk = {k: v for k, v in vtk_data.items() if k in valid_vtk_keys}
-        p_kwargs['vtk_files'] = VTKFilesConfig(**filtered_vtk)
+        bg_f = _resolve_path(base_dir, vtk_data.get('spis_background_potential_file', 'inputs/spis_V_bg.vtk'))
+        sc_f = _resolve_path(base_dir, vtk_data.get('spacecraft_weighting_file', 'inputs/spis_Vw_body.vtk'))
+        ant_fs = [_resolve_path(base_dir, item) for item in vtk_data.get('antenna_weighting_files', [])]
+        vtk_cfg = VTKFilesConfig(
+            spis_background_potential_file=bg_f,
+            spacecraft_weighting_file=sc_f,
+            antenna_weighting_files=ant_fs
+        )
+        p_kwargs['vtk_files'] = vtk_cfg
+        p_kwargs['geometry'] = GeometryConfig(
+            source='spis',
+            spis=SpisGeometryConfig(
+                background_potential_file=bg_f,
+                spacecraft_weighting_file=sc_f,
+                antenna_weighting_files=ant_fs
+            )
+        )
     else:
         vtk_cfg = VTKFilesConfig()
         vtk_cfg.spis_background_potential_file = _resolve_path(base_dir, vtk_cfg.spis_background_potential_file)
         vtk_cfg.spacecraft_weighting_file = _resolve_path(base_dir, vtk_cfg.spacecraft_weighting_file)
         vtk_cfg.antenna_weighting_files = [_resolve_path(base_dir, item) for item in vtk_cfg.antenna_weighting_files]
         p_kwargs['vtk_files'] = vtk_cfg
+        p_kwargs['geometry'] = GeometryConfig(
+            source='spis',
+            spis=SpisGeometryConfig(
+                background_potential_file=vtk_cfg.spis_background_potential_file,
+                spacecraft_weighting_file=vtk_cfg.spacecraft_weighting_file,
+                antenna_weighting_files=vtk_cfg.antenna_weighting_files
+            )
+        )
 
-    valid_param_keys = {f.name for f in fields(SimulationParams3D)}
+    valid_param_keys = {f.name for f in fields(SimulationParams3D) if f.init}
     filtered_params = {k: v for k, v in p_kwargs.items() if k in valid_param_keys}
     filtered_params['Vf'] = Vf
 

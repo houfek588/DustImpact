@@ -159,4 +159,11 @@ def voxelize_cylinder(
 
     dist_perp_sq = (X - closest_x)**2 + (Y - closest_y)**2 + (Z - closest_z)**2
 
-    return (t >= 0.0) & (t <= 1.0) & (dist_perp_sq <= (radius ** 2))
+    mask = (t >= 0.0) & (t <= 1.0) & (dist_perp_sq <= (radius ** 2))
+    if np.sum(mask) == 0 and X.shape[0] > 1:
+        # Thin wire fallback on coarse grids: ensure antenna conductor is represented
+        dx_val = abs(X[1, 0, 0] - X[0, 0, 0])
+        effective_r = max(radius, 0.75 * dx_val)
+        mask = (t >= 0.0) & (t <= 1.0) & (dist_perp_sq <= (effective_r ** 2))
+
+    return mask

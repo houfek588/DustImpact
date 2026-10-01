@@ -122,8 +122,9 @@ def run_3d_simulation(
             try:
                 plot_simulation_results_3d(
                     loaded_results, sim_params, plot_config,
-                    V_bg=V_bg, Vw_grids=Vw_grids,
-                    spacecraft_mask=sc_mask, antenna_masks=ant_masks
+                    V_bg=prep_geom.V_bg, Vw_grids=prep_geom.Vw_grids,
+                    spacecraft_mask=prep_geom.spacecraft_mask_3d,
+                    antenna_masks=prep_geom.antenna_masks_3d
                 )
             except Exception as err:
                 print(f"[CHYBA] Selhalo vykreslení výsledků ze souboru {primary_output_path}: {err}")
