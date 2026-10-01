@@ -231,12 +231,21 @@ def build_simulation_geometry(params: Any) -> PreparedGeometry3D:
             print(f"[UPOZORNĚNÍ] VTK antény {i+1} nenalezen ({e}). Používám syntetické pole.")
             Vw = np.zeros((Nx, Ny, Nz))
 
-        threshold = getattr(params, 'antenna_weighting_threshold', 0.85)
+        threshold = sc_threshold
+        if hasattr(params, 'antenna_weighting_threshold') and params.antenna_weighting_threshold is not None:
+            threshold = params.antenna_weighting_threshold
+        elif hasattr(params, 'weighting_threshold') and params.weighting_threshold is not None:
+            threshold = params.weighting_threshold
+
         mask = extract_enclosed_conductor_mask(
             mesh_ant, pic_grid, Vw, dx_min, threshold=threshold
         )
         if np.sum(mask) == 0:
             mask = (Vw >= threshold)
+        if np.sum(mask) == 0 and np.nanmax(np.abs(Vw)) > 1e-4:
+            # Adaptive fallback if global threshold is too strict for sampled thin-wire antenna field
+            adaptive_thresh = max(0.2, 0.5 * np.nanmax(np.abs(Vw)))
+            mask = (np.abs(Vw) >= adaptive_thresh)
 
         Vw[mask] = 1.0
         Vw_grids.append(Vw)

@@ -29,7 +29,8 @@ class BaseSimulationParams:
     num_macroparticles: int = 20000
 
     time_step_s: float = 2e-9
-    simulation_duration_s: float = 20e-6
+    num_time_steps: int = 10000
+    simulation_duration_s: Optional[float] = None
     impact_time_delay_s: float = 1e-6
 
     solar_wind_electron_temp_eV: float = 15.0
@@ -63,7 +64,14 @@ class BaseSimulationParams:
         self.m_i = self.ion_mass_amu * amu
         self.debye_length = np.sqrt((eps_0 * self.solar_wind_electron_temp_eV * e) / (self.solar_wind_density_m3 * e ** 2))
         self.q_macro = self.total_impact_charge_C / self.num_macroparticles
-        self.steps = int(round(self.simulation_duration_s / self.time_step_s))
+
+        if self.simulation_duration_s is not None and (self.num_time_steps == 10000 or self.num_time_steps is None):
+            self.steps = int(round(self.simulation_duration_s / self.time_step_s))
+            self.num_time_steps = self.steps
+        else:
+            self.steps = int(self.num_time_steps)
+            self.simulation_duration_s = float(self.num_time_steps * self.time_step_s)
+
         self.time_array = np.linspace(0, self.simulation_duration_s, self.steps)
 
         self.N_particles = self.num_macroparticles

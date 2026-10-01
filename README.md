@@ -23,7 +23,7 @@ pip install -e .[3d]
 
 ## 🚀 Příkazy pro spuštění simulátoru
 
-Simulátor má konfigurační soubor **[`config.json`](file:///C:/Projects/Phd/SPIS/PostProcessSPIS/config.json)** a hlavní spouštěcí skript **[`main.py`](file:///C:/Projects/Phd/SPIS/PostProcessSPIS/main.py)** (nebo konzolový příkaz `dust-impact`).
+Simulátor má konfigurační soubor **[`config.json`](file:///C:/Projects/Phd/SPIS/PostProcessSPIS/config.json)** (kompletní manuál k parametrům viz **[`docs/configuration.md`](file:///C:/Projects/Phd/SPIS/PostProcessSPIS/docs/configuration.md)**) a hlavní spouštěcí skript **[`main.py`](file:///C:/Projects/Phd/SPIS/PostProcessSPIS/main.py)** (nebo konzolový příkaz `dust-impact`).
 
 ### 1. Spuštění z příkazové řádky (CLI):
 
@@ -209,7 +209,7 @@ Projekt disponuje ucelenou testovací sadou **39 unit testů** pokrývajících:
 4. **I/O formáty a ParaView export (`test_io_formats.py`):**
    * HDF5, NPZ s JSON metadaty, rotující checkpointy a generování `.vti`/`.vtp`/`.pvd`.
 
-Spuštění všech 39 testů:
+Spuštění všech 48 testů:
 ```bash
 python -m unittest discover -s tests
 ```

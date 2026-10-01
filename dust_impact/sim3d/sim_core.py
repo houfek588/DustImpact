@@ -364,12 +364,8 @@ class DustImpactSimulation3D:
             was_outside[a_idx, new_active] = is_outside
 
             if getattr(self.toggles, 'enable_antenna_particle_collection', True) and np.any(crossed_ant):
-                n_crossed = np.sum(crossed_ant)
-                eff = self.p.collection_eff[a_idx] if a_idx < len(self.p.collection_eff) else 1.0
-                absorbed_mask = np.random.rand(n_crossed) < eff
-
                 global_active_idx = np.where(new_active)[0]
-                absorbed_global_indices = global_active_idx[crossed_ant][absorbed_mask]
+                absorbed_global_indices = global_active_idx[crossed_ant]
 
                 col_currs[a_idx] = len(absorbed_global_indices) * macro_charge / self.p.dt
                 new_active[absorbed_global_indices] = False
@@ -422,6 +418,7 @@ class DustImpactSimulation3D:
             'timestamp': datetime.now().isoformat(),
             'dt': float(self.p.dt),
             'time_step_s': float(self.p.time_step_s),
+            'num_time_steps': int(getattr(self.p, 'num_time_steps', self.p.steps)),
             'simulation_duration_s': float(self.p.simulation_duration_s),
             'steps': int(self.p.steps),
             'grid_shape': [int(self.p.Nx), int(self.p.Ny), int(self.p.Nz)],
@@ -439,7 +436,6 @@ class DustImpactSimulation3D:
             'antenna_capacitance_F': list(self.p.C_ant),
             'antenna_resistance_Ohm': list(self.p.R_ant),
             'antenna_bias_voltage_V': list(self.p.V_bias),
-            'antenna_collection_efficiency': list(self.p.collection_eff),
             'impact_location_xyz_m': list(getattr(self.p, 'impact_pos', [0.0, 0.0, 0.0])),
             'impact_normal': list(getattr(self.p, 'impact_normal', [0.0, 0.0, 1.0])),
             'total_impact_charge_C': float(self.p.total_impact_charge_C),

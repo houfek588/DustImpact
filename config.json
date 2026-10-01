@@ -3,13 +3,28 @@
         "source": "spis",
         "spis": {
             "background_potential_file": "inputs/spis_V_bg.vtk",
-            "spacecraft_weighting_file": "inputs/spis_Vw_body.vtk",
-            "antenna_weighting_files": [
-                "inputs/spis_Vw_ant1.vtk",
-                "inputs/spis_Vw_ant2.vtk",
-                "inputs/spis_Vw_ant3.vtk"
+            "spacecraft": {
+                "weighting_file": "inputs/spis_Vw_body.vtk",
+                "surface_mesh_file": "",
+                "voltage_V": 25.0
+            },
+            "antennas": [
+                {
+                    "weighting_file": "inputs/spis_Vw_ant1.vtk",
+                    "capacitance_F": 2e-12,
+                    "resistance_Ohm": 100000.0
+                },
+                {
+                    "weighting_file": "inputs/spis_Vw_ant2.vtk",
+                    "capacitance_F": 2e-12,
+                    "resistance_Ohm": 100000.0
+                },
+                {
+                    "weighting_file": "inputs/spis_Vw_ant3.vtk",
+                    "capacitance_F": 2e-12,
+                    "resistance_Ohm": 100000.0
+                }
             ],
-            "spacecraft_surface_mesh_file": "",
             "weighting_threshold": 0.85
         }
     },
@@ -20,56 +35,35 @@
         "enable_rc_circuit_response": true,
         "enable_antenna_bias_voltage": true
     },
-    "params": {
+    "physic": {
         "ion_mass_amu": 27.0,
         "impact_cloud_temperature_eV": 2.0,
         "solar_wind_electron_temp_eV": 15.0,
         "solar_wind_density_m3": 10000000.0,
-        "spacecraft_voltage_V": 25.0,
+        "total_impact_charge_C": 5e-11,
         "plasma_injection_mode": "point_cloud",
+        "impact": {
+            "location": [-2.0, 2.0, 0.0],
+            "direction": [1.0, -1.0, 0.0],
+            "time_delay_s": 1e-08
+        }
+    },
+    "numeric": {
         "num_macroparticles": 20000,
         "time_step_s": 2e-09,
-        "simulation_duration_s": 5e-07,
-        "impact_time_delay_s": 1e-08,
-        "domain_half_length_x_m": 10.0,
-        "domain_half_length_y_m": 10.0,
-        "domain_half_length_z_m": 10.0,
-        "impact_location_xyz_m": [
-            -2.0,
-            2.0,
-            0.0
-        ],
-        "impact_direction_vector": [
-            1.0,
-            -1.0,
-            0.0
-        ],
-        "grid_nodes_x": 150,
-        "grid_nodes_y": 150,
-        "grid_nodes_z": 150,
-        "antenna_capacitance_F": [
-            2e-12,
-            2e-12,
-            2e-12
-        ],
-        "antenna_resistance_Ohm": [
-            100000.0,
-            100000.0,
-            100000.0
-        ],
-        "antenna_collection_efficiency": [
-            0.8,
-            0.8,
-            0.8
-        ],
-        "total_impact_charge_C": 5e-11,
-        "antenna_weighting_threshold": 0.5
+        "num_time_steps": 250,
+        "domain_half_length_m": [10.0, 10.0, 10.0],
+        "grid_nodes": [150, 150, 150]
     },
     "plotting": {
         "run_physical_simulation": true,
         "show_interactive_gui_windows": false,
         "save_plots_to_disk": true,
         "export_csv_time_series": false,
+        "show_currents": true,
+        "show_fields_slice": true,
+        "show_particles_3d": true,
+        "show_velocity_anim": true,
         "output_format": "h5",
         "output_h5_filepath": "outputs/out_vysledky.h5",
         "output_npz_filepath": "outputs/out_vysledky.npz",
@@ -77,6 +71,10 @@
         "enable_checkpointing": true,
         "checkpoint_interval_steps": 500,
         "export_vtk": false,
-        "vtk_output_dir": "outputs/paraview_vtk"
+        "vtk_output_dir": "outputs/paraview_vtk",
+        "file_currents": "outputs/out_3d_proudy_napeti.png",
+        "file_fields_anim": "outputs/out_3d_animace_pole_potencial.gif",
+        "file_particles_anim": "outputs/out_3d_animace_pozice_castic.gif",
+        "file_velocity_anim": "outputs/out_3d_animace_rychlosti.gif"
     }
 }
