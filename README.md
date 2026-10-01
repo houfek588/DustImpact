@@ -40,8 +40,14 @@ python main.py --config config.json --output-dir /cesta/k/vysledkum --plot-only
 # Běžné spuštění podle jiné konfigurace (např. šablona):
 python main.py --config inputs/config_template.json
 
+# Uložení do formátu NPZ místo výchozího HDF5:
+python main.py --format npz
+
+# Export pro ParaView (.vti pole, .vtp částice a .pvd časová osa):
+python main.py --export-vtk
+
 # Spuštění přes instalovaný příkaz:
-dust-impact --config inputs/config_template.json --output-dir outputs/run_01
+dust-impact --config inputs/config_template.json --output-dir outputs/run_01 --format h5 --export-vtk
 ```
 
 ### 2. Spuštění z Python skriptu:
@@ -54,7 +60,10 @@ main(
     config_file="config.json",
     output_dir="outputs/run_01",
     plot_only=False,
-    visualize_results=False
+    visualize_results=False,
+    output_format="h5",
+    export_vtk=True,
+    enable_checkpointing=True
 )
 ```
 
@@ -91,8 +100,11 @@ pip install -e .
 | Přepínač | Zkratka | Popis |
 | :--- | :--- | :--- |
 | `--config <cesta>` | `-c` | Cesta ke konfiguračnímu souboru JSON (výchozí: `config.json`). |
-| `--output-dir <složka>` | `-o` | Cílový adresář pro veškeré výstupy (`.npz`, `.csv`, `.png`, `.gif`). Pokud neexistuje, automaticky se vytvoří. |
-| `--plot-only` | | **Režim post-processingu:** Přeskočí fyzikální simulaci, načte existující `.npz` a pouze vygeneruje grafy a animace. |
+| `--output-dir <složka>` | `-o` | Cílový adresář pro veškeré výstupy (`.h5`, `.npz`, `.csv`, `.png`, `.gif`, VTK). Pokud neexistuje, automaticky se vytvoří. |
+| `--format <h5\|npz>` | | Formát ukládání dat simulace (výchozí: `h5` s hierarchickou strukturou a gzip kompresí; volitelně `npz` se self-contained JSON metadaty). |
+| `--export-vtk` | | **ParaView export:** Vygeneruje 3D `.vti` mřížky potenciálu a hustoty, `.vtp` mračna částic a master kolekce `.pvd` pro přímou vizualizaci v ParaView. |
+| `--no-checkpoint` | | Vypne periodické ukládání rotujících kontrolních bodů (`.checkpoint.h5` / `.checkpoint.npz`). |
+| `--plot-only` | | **Režim post-processingu:** Přeskočí fyzikální simulaci, načte existující data (`.h5` nebo `.npz`) a vygeneruje grafy/animace či VTK export. |
 | `--no-visualize` | | Vypne interaktivní okna grafů (vynutí headless vykreslování přímo do souborů na disku). |
 | `--visualize` | | Vynutí interaktivní okna grafů (`plt.show()`), vyžaduje GUI/X11. |
 
@@ -161,7 +173,9 @@ python -m unittest discover -s tests
 ## 📂 Výstupní data
 
 Všechny vygenerované artefakty simulací se automaticky ukládají do složky **[`outputs/`](file:///C:/Projects/Phd/SPIS/PostProcessSPIS/outputs)** (nebo do složky zadané parametrem `--output-dir`):
-* Datové binární archivy `.npz`
-* Výstupní animace `.gif`
-* Statické grafy `.png`
-* Exportované časové řady `.csv`
+* Datové archivy **`.h5`** (primární HDF5 se strukturou signálů, polí a částic) a **`.npz`** (alternativní formát se zabudovanými JSON metadaty)
+* Kontrolní body **`.checkpoint.h5`** / **`.checkpoint.npz`** (automatická ochrana výpočtu proti pádu systému)
+* ParaView 3D scény **`paraview_vtk/`** (`fields.pvd`, `*.vti`, `particles_*.vtp`)
+* Výstupní animace **`.gif`**
+* Statické grafy **`.png`**
+* Exportované časové řady **`.csv`**

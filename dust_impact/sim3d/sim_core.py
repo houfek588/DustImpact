@@ -8,7 +8,7 @@ import sys
 import numpy as np
 import scipy.sparse as sp
 import scipy.sparse.linalg as spla
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, Optional
 
 from dust_impact.physics.constants import e, m_e, eps_0
 from dust_impact.physics.ramo_shockley import calc_induced_current
@@ -403,7 +403,64 @@ class DustImpactSimulation3D:
         self.history['vy_i'].append(np.where(self.active_i, self.vy_i, np.nan)[::self.p.plot_stride])
         self.history['vz_i'].append(np.where(self.active_i, self.vz_i, np.nan)[::self.p.plot_stride])
 
-    def run(self) -> Dict[str, Any]:
+    def get_metadata_dict(self) -> Dict[str, Any]:
+        """Generate comprehensive metadata dictionary for simulation provenance."""
+        from datetime import datetime
+        import dust_impact
+        return {
+            'package_version': getattr(dust_impact, '__version__', '0.3.0'),
+            'timestamp': datetime.now().isoformat(),
+            'dt': float(self.p.dt),
+            'time_step_s': float(self.p.time_step_s),
+            'simulation_duration_s': float(self.p.simulation_duration_s),
+            'steps': int(self.p.steps),
+            'grid_shape': [int(self.p.Nx), int(self.p.Ny), int(self.p.Nz)],
+            'dx': float(self.p.dx),
+            'dy': float(self.p.dy),
+            'dz': float(self.p.dz),
+            'L_x': float(self.p.L_x),
+            'L_y': float(self.p.L_y),
+            'L_z': float(self.p.L_z),
+            'x_grid': self.p.x_grid.tolist(),
+            'y_grid': self.p.y_grid.tolist(),
+            'z_grid': self.p.z_grid.tolist(),
+            'time_array': self.p.time_array.tolist(),
+            'num_antennas': int(self.num_antennas),
+            'antenna_capacitance_F': list(self.p.C_ant),
+            'antenna_resistance_Ohm': list(self.p.R_ant),
+            'antenna_bias_voltage_V': list(self.p.V_bias),
+            'antenna_collection_efficiency': list(self.p.collection_eff),
+            'impact_location_xyz_m': list(getattr(self.p, 'impact_pos', [0.0, 0.0, 0.0])),
+            'impact_normal': list(getattr(self.p, 'impact_normal', [0.0, 0.0, 1.0])),
+            'total_impact_charge_C': float(self.p.total_impact_charge_C),
+            'ion_mass_amu': float(self.p.ion_mass_amu),
+            'solar_wind_electron_temp_eV': float(self.p.solar_wind_electron_temp_eV),
+            'solar_wind_density_m3': float(self.p.solar_wind_density_m3),
+            'plasma_injection_mode': getattr(self.p, 'plasma_injection_mode', 'point_cloud')
+        }
+
+    def _build_results_dict(self) -> Dict[str, Any]:
+        """Construct full results dictionary with smoothed signals, voltages, and metadata."""
+        k_size = min(100, max(1, self.p.steps))
+        kernel = np.ones(k_size) / k_size
+        res = {
+            'smooth_induced': [],
+            'smooth_collected': [],
+            'smooth_total': [],
+            'voltage_ant': self.voltage_ant,
+            'history': self.history,
+            'metadata': self.get_metadata_dict()
+        }
+        for a_idx in range(self.num_antennas):
+            res['smooth_induced'].append(
+                np.convolve(self.ind_curr_e[a_idx] + self.ind_curr_i[a_idx], kernel, mode='same'))
+            res['smooth_collected'].append(
+                np.convolve(self.col_curr_e[a_idx] + self.col_curr_i[a_idx], kernel, mode='same'))
+            res['smooth_total'].append(np.convolve(self.tot_curr[a_idx], kernel, mode='same'))
+        return res
+
+    def run(self, checkpoint_filepath: Optional[str] = None, checkpoint_interval: int = 0,
+            h5_writer: Optional[Any] = None) -> Dict[str, Any]:
         print(f"Spouštím 3D Simulaci... Mřížka: {self.p.Nx}x{self.p.Ny}x{self.p.Nz} | Počet antén: {self.num_antennas}")
 
         for step in range(self.p.steps):
@@ -446,27 +503,43 @@ class DustImpactSimulation3D:
                     self.voltage_ant[a_idx, step] = self.voltage_ant[a_idx, step - 1] + dV_dt * self.p.dt
 
             if step % self.p.save_interval == 0 or step == self.p.steps - 1:
-                self._save_history(step * self.p.dt)
+                t_cur = step * self.p.dt
+                self._save_history(t_cur)
+                if h5_writer is not None:
+                    part_dict = {
+                        'x_e': self.history['x_e'][-1],
+                        'y_e': self.history['y_e'][-1],
+                        'z_e': self.history['z_e'][-1],
+                        'vx_e': self.history['vx_e'][-1],
+                        'vy_e': self.history['vy_e'][-1],
+                        'vz_e': self.history['vz_e'][-1],
+                        'x_i': self.history['x_i'][-1],
+                        'y_i': self.history['y_i'][-1],
+                        'z_i': self.history['z_i'][-1],
+                        'vx_i': self.history['vx_i'][-1],
+                        'vy_i': self.history['vy_i'][-1],
+                        'vz_i': self.history['vz_i'][-1]
+                    }
+                    h5_writer.write_history_frame(t_cur, self.history['V'][-1], self.history['rho'][-1], part_dict)
+
+            # Periodic atomic checkpointing
+            if checkpoint_filepath and checkpoint_interval > 0 and step > 0 and (
+                step % checkpoint_interval == 0 or step == self.p.steps - 1
+            ):
+                try:
+                    from dust_impact.common.io import save_checkpoint
+                    inter_res = self._build_results_dict()
+                    save_checkpoint(inter_res, checkpoint_filepath, metadata=self.get_metadata_dict())
+                except Exception as cp_err:
+                    print(f"  [VAROVÁNÍ] Uložení checkpointu selhalo: {cp_err}")
 
             if step % (max(1, self.p.steps // 10)) == 0:
                 print(f"  -> Průběh: {int(step / self.p.steps * 100)}% ({step}/{self.p.steps} kroků)")
 
         print(f"  -> Průběh: 100% ({self.p.steps}/{self.p.steps} kroků)")
 
-        k_size = min(100, max(1, self.p.steps))
-        kernel = np.ones(k_size) / k_size
-        res = {
-            'smooth_induced': [],
-            'smooth_collected': [],
-            'smooth_total': [],
-            'voltage_ant': self.voltage_ant,
-            'history': self.history
-        }
-        for a_idx in range(self.num_antennas):
-            res['smooth_induced'].append(
-                np.convolve(self.ind_curr_e[a_idx] + self.ind_curr_i[a_idx], kernel, mode='same'))
-            res['smooth_collected'].append(
-                np.convolve(self.col_curr_e[a_idx] + self.col_curr_i[a_idx], kernel, mode='same'))
-            res['smooth_total'].append(np.convolve(self.tot_curr[a_idx], kernel, mode='same'))
+        res = self._build_results_dict()
+        if h5_writer is not None:
+            h5_writer.finish(res)
 
         return res

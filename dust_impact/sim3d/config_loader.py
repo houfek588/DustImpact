@@ -43,12 +43,27 @@ class PlottingConfig3D:
     show_particles_3d: bool = True
     show_velocity_anim: bool = True
 
+    output_format: str = "h5"
+    output_h5_filepath: str = "outputs/out_3d_vysledky.h5"
     output_npz_filepath: str = "outputs/out_3d_vysledky.npz"
     output_csv_filepath: str = "outputs/out_3d_vysledky_simulace.csv"
+    
+    enable_checkpointing: bool = True
+    checkpoint_interval_steps: int = 500
+    
+    export_vtk: bool = False
+    vtk_output_dir: str = "outputs/paraview_vtk"
+
     file_currents: str = "outputs/out_3d_proudy_napeti.png"
     file_fields_anim: str = "outputs/out_3d_animace_pole_potencial.gif"
     file_particles_anim: str = "outputs/out_3d_animace_pozice_castic.gif"
     file_velocity_anim: str = "outputs/out_3d_animace_rychlosti.gif"
+
+    @property
+    def primary_output_filepath(self) -> str:
+        if getattr(self, 'output_format', 'h5') == 'h5':
+            return self.output_h5_filepath
+        return self.output_npz_filepath
 
 
 @dataclass
@@ -191,6 +206,7 @@ def setup_simulation_parameters_3d(
     plot_config = PlottingConfig3D(**filtered_plot)
 
     output_path_keys = [
+        'output_h5_filepath',
         'output_npz_filepath',
         'output_csv_filepath',
         'file_currents',
@@ -207,11 +223,16 @@ def setup_simulation_parameters_3d(
             if val:
                 fname = os.path.basename(val)
                 setattr(plot_config, key, os.path.join(abs_output_dir, fname))
+        if plot_config.vtk_output_dir:
+            v_dir_name = os.path.basename(plot_config.vtk_output_dir)
+            plot_config.vtk_output_dir = os.path.join(abs_output_dir, v_dir_name)
     else:
         for key in output_path_keys:
             val = getattr(plot_config, key, None)
             if val:
                 setattr(plot_config, key, _resolve_path(base_dir, val))
+        if plot_config.vtk_output_dir and not os.path.isabs(plot_config.vtk_output_dir):
+            plot_config.vtk_output_dir = os.path.join(base_dir, plot_config.vtk_output_dir)
 
     return params, toggles, plot_config
 

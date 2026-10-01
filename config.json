@@ -70,7 +70,13 @@
         "show_interactive_gui_windows": false,
         "save_plots_to_disk": true,
         "export_csv_time_series": false,
+        "output_format": "h5",
+        "output_h5_filepath": "outputs/out_vysledky.h5",
         "output_npz_filepath": "outputs/out_vysledky.npz",
-        "output_csv_filepath": "outputs/out_vysledky_simulace.csv"
+        "output_csv_filepath": "outputs/out_vysledky_simulace.csv",
+        "enable_checkpointing": true,
+        "checkpoint_interval_steps": 500,
+        "export_vtk": false,
+        "vtk_output_dir": "outputs/paraview_vtk"
     }
 }
