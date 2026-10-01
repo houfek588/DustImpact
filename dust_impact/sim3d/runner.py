@@ -31,14 +31,17 @@ def run_3d_simulation(
     V_equilibrium = calculate_equilibrium_potential(ENV_EARTH, MAT_ALUMINIUM)
     V_equilibrium_antenne = calculate_equilibrium_potential(ENV_EARTH, MAT_ALUMINIUM_ANTENNE)
 
-    print(f"=== KROK 1: Rovnovážné nabití ===")
-    print(f"Plovoucí potenciál sondy: {V_equilibrium:.3f} V")
-    print(f"Plovoucí potenciál antény: {V_equilibrium_antenne:.3f} V")
-
     print(f"Načítám konfiguraci z: {config_file}")
     sim_params, sim_toggles, plot_config = setup_simulation_parameters_3d(
         V_equilibrium, V_equilibrium_antenne, config_file=config_file, output_dir=output_dir
     )
+
+    print(f"=== KROK 1: Potenciály vodičů ===")
+    if sim_params.spacecraft_voltage_V is not None:
+        print(f"Potenciál trupu sondy: {sim_params.spacecraft_voltage_V:.3f} V")
+    else:
+        print(f"Plovoucí potenciál sondy: {V_equilibrium:.3f} V")
+    print(f"Výchozí plovoucí potenciál antény: {V_equilibrium_antenne:.3f} V")
 
     if visualize_results is not None:
         plot_config.show_interactive_gui_windows = visualize_results
@@ -131,21 +134,6 @@ def run_3d_simulation(
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="3D PIC Simulátor dopadu prachu.")
-    parser.add_argument("--config", "-c", type=str, default="config.json", help="Cesta ke konfiguračnímu JSON souboru")
-    parser.add_argument("--output-dir", "-o", type=str, default=None, help="Cílová složka pro uložení všech výstupů")
-    parser.add_argument("--plot-only", action="store_true", default=False, help="Přeskočit PIC výpočet a pouze vygenerovat grafy z existujících dat")
-    parser.add_argument("--format", type=str, choices=["h5", "npz"], default=None, help="Formát uložení výsledků simulace (výchozí: h5)")
-    parser.add_argument("--export-vtk", action="store_true", default=None, help="Vygenerovat 3D ParaView data (.vti, .vtp, .pvd)")
-    parser.add_argument("--no-checkpoint", action="store_true", default=False, help="Vypnout průběžné ukládání kontrolních bodů (checkpointing)")
-    args = parser.parse_args()
-
-    run_3d_simulation(
-        config_file=args.config,
-        output_dir=args.output_dir,
-        plot_only=args.plot_only,
-        output_format=args.format,
-        export_vtk=args.export_vtk,
-        enable_checkpointing=False if args.no_checkpoint else None
-    )
+    from dust_impact.main import cli_entrypoint
+    cli_entrypoint()
 

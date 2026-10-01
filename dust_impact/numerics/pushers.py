@@ -19,30 +19,6 @@ except ImportError:
 
 
 @njit(fastmath=True)
-def leapfrog_step_2d(x: np.ndarray, y: np.ndarray, vx: np.ndarray, vy: np.ndarray,
-                     Ex: np.ndarray, Ey: np.ndarray, q_over_m: float, dt: float,
-                     active: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """
-    Executes symplectic Leapfrog time step for active 2D particles.
-
-    vx_{n+1/2} = vx_{n-1/2} + (q/m) * Ex * dt
-    x_{n+1}    = x_n + vx_{n+1/2} * dt
-    """
-    vx_new = vx.copy()
-    vy_new = vy.copy()
-    x_new = x.copy()
-    y_new = y.copy()
-
-    vx_new[active] += q_over_m * Ex[active] * dt
-    vy_new[active] += q_over_m * Ey[active] * dt
-
-    x_new[active] += vx_new[active] * dt
-    y_new[active] += vy_new[active] * dt
-
-    return x_new, y_new, vx_new, vy_new
-
-
-@njit(fastmath=True)
 def leapfrog_step_3d(x: np.ndarray, y: np.ndarray, z: np.ndarray,
                      vx: np.ndarray, vy: np.ndarray, vz: np.ndarray,
                      Ex: np.ndarray, Ey: np.ndarray, Ez: np.ndarray,

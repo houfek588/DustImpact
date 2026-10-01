@@ -9,7 +9,12 @@ from dust_impact.sim3d.config_loader import (
     VTKFilesConfig,
     setup_simulation_parameters_3d,
 )
-from dust_impact.sim3d.sim_core import DustImpactSimulation3D
+from dust_impact.sim3d.sim_core import (
+    DustImpactSimulation3D,
+    ParticleEnsemble,
+    FieldSolver3D,
+    AntennaCircuitCollector,
+)
 from dust_impact.sim3d.vtk_reader import load_and_interpolate_vtk
 from dust_impact.sim3d.runner import run_3d_simulation
 
@@ -20,6 +25,9 @@ __all__ = [
     "VTKFilesConfig",
     "setup_simulation_parameters_3d",
     "DustImpactSimulation3D",
+    "ParticleEnsemble",
+    "FieldSolver3D",
+    "AntennaCircuitCollector",
     "load_and_interpolate_vtk",
     "run_3d_simulation",
 ]

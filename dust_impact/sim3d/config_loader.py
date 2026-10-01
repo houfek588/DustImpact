@@ -338,27 +338,6 @@ class SimulationParams3D(BaseSimulationParams):
     weighting_threshold: float = 0.85
     antenna_weighting_threshold: Optional[float] = None
 
-    # Derived attributes specific to 3D
-    dx: float = field(init=False)
-    dy: float = field(init=False)
-    dz: float = field(init=False)
-    x_grid: np.ndarray = field(init=False)
-    y_grid: np.ndarray = field(init=False)
-    z_grid: np.ndarray = field(init=False)
-
-    # 3D Convenience aliases
-    Nx: int = field(init=False)
-    Ny: int = field(init=False)
-    Nz: int = field(init=False)
-    L_x: float = field(init=False)
-    L_y: float = field(init=False)
-    L_z: float = field(init=False)
-    impact_pos: List[float] = field(init=False)
-    C_ant: List[float] = field(init=False)
-    R_ant: List[float] = field(init=False)
-    V_bias: List[float] = field(init=False)
-    collection_eff: List[float] = field(init=False)
-
     @property
     def physics(self) -> PhysicConfig:
         return self.physic
@@ -366,6 +345,134 @@ class SimulationParams3D(BaseSimulationParams):
     @property
     def numerics(self) -> NumericConfig:
         return self.numeric
+
+    @property
+    def Nx(self) -> int:
+        return int(self.grid_nodes[0])
+
+    @Nx.setter
+    def Nx(self, val: int) -> None:
+        self.grid_nodes[0] = int(val)
+        self.grid_nodes_x = self.grid_nodes[0]
+
+    @property
+    def Ny(self) -> int:
+        return int(self.grid_nodes[1])
+
+    @Ny.setter
+    def Ny(self, val: int) -> None:
+        self.grid_nodes[1] = int(val)
+        self.grid_nodes_y = self.grid_nodes[1]
+
+    @property
+    def Nz(self) -> int:
+        return int(self.grid_nodes[2])
+
+    @Nz.setter
+    def Nz(self, val: int) -> None:
+        self.grid_nodes[2] = int(val)
+        self.grid_nodes_z = self.grid_nodes[2]
+
+    @property
+    def L_x(self) -> float:
+        return float(self.domain_half_length_m[0])
+
+    @L_x.setter
+    def L_x(self, val: float) -> None:
+        self.domain_half_length_m[0] = float(val)
+        self.domain_half_length_x_m = self.domain_half_length_m[0]
+
+    @property
+    def L_y(self) -> float:
+        return float(self.domain_half_length_m[1])
+
+    @L_y.setter
+    def L_y(self, val: float) -> None:
+        self.domain_half_length_m[1] = float(val)
+        self.domain_half_length_y_m = self.domain_half_length_m[1]
+
+    @property
+    def L_z(self) -> float:
+        return float(self.domain_half_length_m[2])
+
+    @L_z.setter
+    def L_z(self, val: float) -> None:
+        self.domain_half_length_m[2] = float(val)
+        self.domain_half_length_z_m = self.domain_half_length_m[2]
+
+    @property
+    def x_grid(self) -> np.ndarray:
+        return np.linspace(-self.L_x, self.L_x, self.Nx)
+
+    @property
+    def y_grid(self) -> np.ndarray:
+        return np.linspace(-self.L_y, self.L_y, self.Ny)
+
+    @property
+    def z_grid(self) -> np.ndarray:
+        return np.linspace(-self.L_z, self.L_z, self.Nz)
+
+    @property
+    def dx(self) -> float:
+        return float(2.0 * self.L_x / (self.Nx - 1)) if self.Nx > 1 else 1.0
+
+    @property
+    def dy(self) -> float:
+        return float(2.0 * self.L_y / (self.Ny - 1)) if self.Ny > 1 else 1.0
+
+    @property
+    def dz(self) -> float:
+        return float(2.0 * self.L_z / (self.Nz - 1)) if self.Nz > 1 else 1.0
+
+    @property
+    def impact_pos(self) -> List[float]:
+        return self.impact.location
+
+    @impact_pos.setter
+    def impact_pos(self, val: List[float]) -> None:
+        self.impact.location = list(val)
+        self.impact_location_xyz_m = list(val)
+
+    @property
+    def t_delay(self) -> float:
+        return float(self.impact.time_delay_s)
+
+    @t_delay.setter
+    def t_delay(self, val: float) -> None:
+        self.impact.time_delay_s = float(val)
+        self.impact_time_delay_s = float(val)
+
+    @property
+    def C_ant(self) -> List[float]:
+        return self.antenna_capacitance_F
+
+    @C_ant.setter
+    def C_ant(self, val: List[float]) -> None:
+        self.antenna_capacitance_F = list(val)
+
+    @property
+    def R_ant(self) -> List[float]:
+        return self.antenna_resistance_Ohm
+
+    @R_ant.setter
+    def R_ant(self, val: List[float]) -> None:
+        self.antenna_resistance_Ohm = list(val)
+
+    @property
+    def V_bias(self) -> List[float]:
+        return self.antenna_bias_voltage_V
+
+    @V_bias.setter
+    def V_bias(self, val: List[float]) -> None:
+        self.antenna_bias_voltage_V = list(val)
+
+    @property
+    def collection_eff(self) -> List[float]:
+        return self.antenna_collection_efficiency or [1.0] * len(self.antenna_capacitance_F)
+
+    @collection_eff.setter
+    def collection_eff(self, val: List[float]) -> None:
+        self.antenna_collection_efficiency = list(val)
 
     def __post_init__(self):
         # 1. Synchronize sub-configs (physic, numeric) with self
@@ -468,32 +575,14 @@ class SimulationParams3D(BaseSimulationParams):
             self.impact_normal = [-0.7071, 0.7071, 0.0]
             self.impact.normal = list(self.impact_normal)
 
-        self.impact_pos = self.impact_location_xyz_m
-        self.t_delay = self.impact_time_delay_s
-
-        self.Nx = self.grid_nodes_x
-        self.Ny = self.grid_nodes_y
-        self.Nz = self.grid_nodes_z
-        self.L_x = self.domain_half_length_x_m
-        self.L_y = self.domain_half_length_y_m
-        self.L_z = self.domain_half_length_z_m
-
-        self.x_grid = np.linspace(-self.L_x, self.L_x, self.Nx)
-        self.y_grid = np.linspace(-self.L_y, self.L_y, self.Ny)
-        self.z_grid = np.linspace(-self.L_z, self.L_z, self.Nz)
-
-        self.dx = self.x_grid[1] - self.x_grid[0]
-        self.dy = self.y_grid[1] - self.y_grid[0]
-        self.dz = self.z_grid[1] - self.z_grid[0]
-
         # 4. Base derived params
         self._init_base_derived_params()
 
-        # Synchronize geometry and vtk_files for bidirectional compatibility
-        if getattr(self.geometry, 'source', 'spis') == 'spis':
+        # 5. Synchronize geometry and vtk_files for bidirectional compatibility
+        source = getattr(self.geometry, 'source', 'spis')
+        if source == 'spis':
             default_sc = "inputs/spis_Vw_body.vtk"
             default_bg = "inputs/spis_V_bg.vtk"
-            # If vtk_files was customized, sync to geometry.spis
             if (getattr(self.vtk_files, 'spacecraft_weighting_file', '') != default_sc or
                 getattr(self.vtk_files, 'spis_background_potential_file', '') != default_bg):
                 self.geometry.spis.spacecraft_weighting_file = self.vtk_files.spacecraft_weighting_file
@@ -506,7 +595,7 @@ class SimulationParams3D(BaseSimulationParams):
 
             if not self.antenna_bias_voltage_V:
                 self.antenna_bias_voltage_V = [0.0] * len(self.antenna_capacitance_F)
-        elif getattr(self.geometry, 'source', 'spis') == 'analytical':
+        elif source == 'analytical':
             ant_geoms = getattr(getattr(self.geometry, 'analytical', None), 'antennas', [])
             if ant_geoms:
                 self.antenna_bias_voltage_V = [
@@ -516,23 +605,14 @@ class SimulationParams3D(BaseSimulationParams):
             elif not self.antenna_bias_voltage_V:
                 self.antenna_bias_voltage_V = [0.0] * len(self.antenna_capacitance_F)
 
-        # Synchronize spacecraft voltage from geometry if specified
-        if getattr(self.geometry, 'source', 'spis') == 'analytical':
-            sc = getattr(getattr(self.geometry, 'analytical', None), 'spacecraft', None)
-            if sc and getattr(sc, 'effective_voltage', None) is not None:
-                self.spacecraft_voltage_V = sc.effective_voltage
-        elif getattr(self.geometry, 'source', 'spis') == 'spis':
-            sc = getattr(getattr(self.geometry, 'spis', None), 'spacecraft', None)
-            if sc and getattr(sc, 'effective_voltage', None) is not None:
-                self.spacecraft_voltage_V = sc.effective_voltage
+        # Spacecraft voltage sync
+        geom_obj = getattr(self.geometry, source, None)
+        sc = getattr(geom_obj, 'spacecraft', None)
+        if sc and getattr(sc, 'effective_voltage', None) is not None:
+            self.spacecraft_voltage_V = sc.effective_voltage
 
-        # Synchronize antenna circuit parameters from individual antennas if specified
-        ant_geoms_list = []
-        if getattr(self.geometry, 'source', 'spis') == 'analytical':
-            ant_geoms_list = getattr(getattr(self.geometry, 'analytical', None), 'antennas', [])
-        elif getattr(self.geometry, 'source', 'spis') == 'spis':
-            ant_geoms_list = getattr(getattr(self.geometry, 'spis', None), 'antennas', [])
-
+        # Antenna circuit params sync
+        ant_geoms_list = getattr(geom_obj, 'antennas', [])
         if ant_geoms_list:
             if any(getattr(a, 'capacitance_F', None) is not None for a in ant_geoms_list):
                 self.antenna_capacitance_F = [
@@ -545,8 +625,8 @@ class SimulationParams3D(BaseSimulationParams):
                     for a in ant_geoms_list
                 ]
 
-        # Synchronize weighting_threshold from geometry.spis
-        if getattr(self.geometry, 'source', 'spis') == 'spis':
+        # Weighting threshold sync
+        if source == 'spis':
             spis_obj = getattr(self.geometry, 'spis', None)
             if spis_obj and hasattr(spis_obj, 'weighting_threshold'):
                 self.weighting_threshold = float(spis_obj.weighting_threshold)
@@ -554,23 +634,10 @@ class SimulationParams3D(BaseSimulationParams):
             self.antenna_weighting_threshold = self.weighting_threshold
         else:
             self.weighting_threshold = float(self.antenna_weighting_threshold)
-            if getattr(self.geometry, 'source', 'spis') == 'spis' and hasattr(self.geometry.spis, 'weighting_threshold'):
+            if source == 'spis' and hasattr(self.geometry.spis, 'weighting_threshold'):
                 self.geometry.spis.weighting_threshold = self.weighting_threshold
 
-        self.x_grid = np.linspace(-self.L_x, self.L_x, self.Nx)
-        self.y_grid = np.linspace(-self.L_y, self.L_y, self.Ny)
-        self.z_grid = np.linspace(-self.L_z, self.L_z, self.Nz)
-
-        self.dx = self.x_grid[1] - self.x_grid[0]
-        self.dy = self.y_grid[1] - self.y_grid[0]
-        self.dz = self.z_grid[1] - self.z_grid[0]
-
-        self.impact_pos = self.impact_location_xyz_m
-        self.C_ant = self.antenna_capacitance_F
-        self.R_ant = self.antenna_resistance_Ohm
-        self.V_bias = self.antenna_bias_voltage_V
-        self.collection_eff = self.antenna_collection_efficiency or [1.0] * len(self.antenna_capacitance_F)
-
+        # Homogeneous macroparticle charge
         if getattr(self, 'plasma_injection_mode', 'point_cloud') == 'homogeneous':
             domain_vol = (2.0 * self.L_x) * (2.0 * self.L_y) * (2.0 * self.L_z)
             self.q_macro = (self.solar_wind_density_m3 * domain_vol * e) / self.num_macroparticles

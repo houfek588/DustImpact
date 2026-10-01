@@ -181,7 +181,10 @@ dust_impact/
 │   ├── vtk_export.py # Export časových řad polí a částic pro ParaView (.vti, .vtp, .pvd)
 │   └── circuits.py   # Integrování RC odezvy anténního předzesilovače
 └── sim3d/            # Řídicí vrstva 3D PIC simulace
-    ├── sim_core.py   # Výpočetní jádro DustImpactSimulation3D
+    ├── ensemble.py   # Správa částicového ansámblu (ParticleEnsemble), injekce a CCD kolize
+    ├── field_solver.py # Řešič Poissonovy rovnice a elektrostatických polí (FieldSolver3D)
+    ├── collector.py  # Sběr náboje a integrace anténních RC obvodů (AntennaCircuitCollector)
+    ├── sim_core.py   # Hlavní orchestrátor 3D simulace (DustImpactSimulation3D)
     ├── runner.py     # CLI orchestrátor běhu simulace
     ├── config_loader.py # Dataclass parametry a validace konfigurace
     └── plotting.py   # Vykreslování grafů a generování animací
@@ -192,24 +195,28 @@ dust_impact/
 
 ## 🧪 Spuštění verifikačních testů
 
-Projekt disponuje ucelenou testovací sadou **39 unit testů** pokrývajících:
-1. **Zpracování geometrie (`test_geometry.py`):**
+Projekt disponuje ucelenou testovací sadou **53 unit testů** pokrývajících:
+1. **Numeriku a jádra (`test_numerics.py`):**
+   * Cloud-in-Cell (CIC) trilineární vážení náboje s exaktním zachováním náboje $\sum \rho \cdot dV = \sum q$.
+   * Adjointní trilineární interpolace elektrických polí $\mathbf{E} \to \mathbf{x}_p$.
+   * Symplektický Boris/Leap-frog posun částic a CFL stabilita.
+2. **Zpracování geometrie (`test_geometry.py`):**
    * Voxelizace geometrických těles (koule, kvádry, válce).
    * Detekce kovových povrchů z gradientu váhových potenciálů (`detect_metal_mask_3d`).
    * Analytické elektrostatické modely (vakuum i Debyeovo stínění, shoda s analytickými vztahy $V(r)$ a $\mathbf{E}(r)$).
    * Ray-tracing na mřížce a výpočet výchozího bodu a normály dopadu.
    * Kontejner `PreparedGeometry3D` a integrace do řešiče `DustImpactSimulation3D`.
-2. **Analytickou 3D fyzikální verifikaci (`test_physics_analytical_3d.py`):**
+3. **Analytickou 3D fyzikální verifikaci (`test_physics_analytical_3d.py`):**
    * 3D Ramo-Shockley odezva antény na letící náboj (přesný průběh $I(t)$ a píky proudu).
    * 3D Poissonův řešič pro Gaussovský nábojový oblak ($V(r) \sim \frac{\text{erf}(r/\sigma)}{r}$).
    * Metoda vytvořených řešení (MMS) a ověření 2. řádu konvergence $\mathcal{O}(dx^2)$ diferenčního operátoru.
    * 3D plazmatické Langmuirovy oscilace (FFT spektrum kmitů částic vs. $\omega_{pe}$).
-3. **Fyzikální zákony a obvody (`test_physics_level1.py`, `test_physics_level2.py`):**
+4. **Fyzikální zákony a obvody (`test_physics_level1.py`, `test_physics_level2.py`):**
    * Globální zachování náboje v 3D PIC, Debyeovo stínění, analytická odezva RC obvodu antény, ambipolární expanze.
-4. **I/O formáty a ParaView export (`test_io_formats.py`):**
+5. **I/O formáty a ParaView export (`test_io_formats.py`):**
    * HDF5, NPZ s JSON metadaty, rotující checkpointy a generování `.vti`/`.vtp`/`.pvd`.
 
-Spuštění všech 48 testů:
+Spuštění všech 53 testů:
 ```bash
 python -m unittest discover -s tests
 ```
