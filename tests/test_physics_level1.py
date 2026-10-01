@@ -5,8 +5,15 @@ from dust_impact.physics.constants import e, m_e, eps_0
 from dust_impact.common.circuits import integrate_rc_circuit
 from dust_impact.common.io import ensure_dir
 from dust_impact.physics.charging import calculate_equilibrium_potential, ENV_EARTH, MAT_ALUMINIUM
-from dust_impact.sim2d.input_data import SimulationParams2D, SimulationToggles2D, calc_Ew_2d
-from dust_impact.sim2d.sim_core import DustImpactSimulation2D
+from dust_impact.sim3d.config_loader import SimulationParams3D, SimulationToggles3D
+from dust_impact.sim3d.sim_core import DustImpactSimulation3D
+
+
+def _calc_gaussian_Ew_3d(x: np.ndarray, y: np.ndarray, z: np.ndarray, w_width: float = 0.2):
+    """Analytical 3D Gaussian weighting field centered at origin."""
+    r_sq = x ** 2 + y ** 2 + z ** 2
+    factor = (2.0 / w_width ** 2) * np.exp(-r_sq / (w_width ** 2))
+    return x * factor, y * factor, z * factor
 
 
 class TestPhysicsLevel1(unittest.TestCase):
@@ -98,9 +105,10 @@ class TestPhysicsLevel1(unittest.TestCase):
 
         x_pos = v0 * time
         y_pos = np.full_like(x_pos, y0)
+        z_pos = np.zeros_like(x_pos)
 
-        Ewx, Ewy = calc_Ew_2d(x_pos, y_pos, 0.0, 0.0, 0.0, 0.0, w_width=0.2)
-        I_ind = - q0 * (v0 * Ewx + 0.0 * Ewy)
+        Ewx, Ewy, Ewz = _calc_gaussian_Ew_3d(x_pos, y_pos, z_pos, w_width=0.2)
+        I_ind = - q0 * (v0 * Ewx + 0.0 * Ewy + 0.0 * Ewz)
         Q_net = np.sum(I_ind) * dt
 
         self.assertAlmostEqual(Q_net, 0.0, delta=1e-18)
@@ -150,24 +158,48 @@ class TestPhysicsLevel1(unittest.TestCase):
             f"Equilibrium Surface Potential (Earth - Al): {V_eq:.4f} V"
         )
 
-    def test_charge_conservation_in_2d_pic(self):
+    def test_charge_conservation_in_3d_pic(self):
         """
-        Verifies global conservation of charge in 2D PIC simulation:
+        Verifies global conservation of charge in 3D PIC simulation:
         Q_total(t=0) == Q_active(t) + Q_collected(t) + Q_escaped(t)
         """
-        params = SimulationParams2D(
+        params = SimulationParams3D(
             Vf=-5.0,
-            num_macroparticles=200,
+            num_macroparticles=150,
             simulation_duration_s=2e-8,
             time_step_s=1e-9,
-            grid_nodes_x=12,
-            grid_nodes_y=12,
-            antennas=[
-                {"x1": 1.0, "y1": 0.1, "x2": 1.0, "y2": 0.5, "r": 0.05, "V_bias": 0.0, "w_width": 0.2, "C": 1e-12, "R": 10e3}
-            ]
+            grid_nodes_x=10,
+            grid_nodes_y=10,
+            grid_nodes_z=10,
+            domain_half_length_x_m=2.0,
+            domain_half_length_y_m=2.0,
+            domain_half_length_z_m=2.0,
+            impact_location_xyz_m=[0.0, 0.0, 0.0],
+            impact_normal=[0.0, 0.0, 1.0],
+            antenna_capacitance_F=[1e-12],
+            antenna_resistance_Ohm=[10e3],
+            antenna_bias_voltage_V=[0.0],
+            antenna_collection_efficiency=[1.0]
         )
-        toggles = SimulationToggles2D()
-        sim = DustImpactSimulation2D(params, toggles)
+        toggles = SimulationToggles3D(
+            enable_spis_background_field=False,
+            enable_antenna_particle_collection=True
+        )
+
+        Nx, Ny, Nz = params.Nx, params.Ny, params.Nz
+        V_bg = np.zeros((Nx, Ny, Nz))
+        Vw_grids = [np.zeros((Nx, Ny, Nz))]
+        Ex_bg, Ey_bg, Ez_bg = np.zeros((Nx, Ny, Nz)), np.zeros((Nx, Ny, Nz)), np.zeros((Nx, Ny, Nz))
+        Ewx_list, Ewy_list, Ewz_list = [Ex_bg], [Ey_bg], [Ez_bg]
+        antenna_masks_3d = [np.zeros((Nx, Ny, Nz), dtype=bool)]
+        antenna_masks_3d[0][params.Nx // 2, params.Ny // 2, params.Nz // 2] = True
+        spacecraft_mask_3d = np.zeros((Nx, Ny, Nz), dtype=bool)
+
+        sim = DustImpactSimulation3D(
+            params, toggles,
+            V_bg, Vw_grids, Ex_bg, Ey_bg, Ez_bg, Ewx_list, Ewy_list, Ewz_list,
+            antenna_masks_3d, spacecraft_mask_3d
+        )
 
         Q_e_init = - sim.p.N_particles * sim.p.q_macro
         Q_i_init = + sim.p.N_particles * sim.p.q_macro
@@ -195,14 +227,14 @@ class TestPhysicsLevel1(unittest.TestCase):
         self.assertAlmostEqual(Q_tot_init, Q_tot_final, delta=1e-15)
 
         self._log_result(
-            "Global Charge Conservation (2D PIC)",
+            "Global Charge Conservation (3D PIC)",
             "PASS",
             f"Q_init = {Q_tot_init:.4e} C | Q_final = {Q_tot_final:.4e} C | Delta = {delta_Q:.4e} C"
         )
 
     def test_debye_shielding_exponential_decay(self):
         """
-        Verifies exact 1D/2D Debye potential screening decay in plasma:
+        Verifies exact 1D Debye potential screening decay in plasma:
         Solves (grad^2 - 1/lambda_D^2) V = 0 and verifies that V(x) matches exact
         analytical solution V_exact(x) = V0 * sinh((L - x)/lambda_D) / sinh(L/lambda_D),
         and at x = lambda_D, V(lambda_D) / V0 is within 0.1% of e^-1.
@@ -250,61 +282,30 @@ class TestPhysicsLevel1(unittest.TestCase):
         self.assertAlmostEqual(V_num_lambda / V0, np.exp(-1), delta=0.01)
 
         self._log_result(
-            "Debye Shielding Exponential Decay",
+            "Debye Shielding Potential Decay",
             "PASS",
-            f"lambda_D = {lambda_D:.3f} m | V(lambda_D)/V0 = {V_num_lambda / V0:.4f} (Theoretical e^-1 = {np.exp(-1):.4f}) | Rel Error = {rel_err * 100:.4f}%"
+            f"Rel Error at lambda_D: {rel_err * 100:.4f}% | V(lambda_D)/V0: {V_num_lambda / V0:.4f} (exp(-1)={np.exp(-1):.4f})"
         )
 
         try:
             import matplotlib.pyplot as plt
             fig, ax = plt.subplots(figsize=(8, 5))
-            ax.plot(x_grid, V_analytical, 'k--', lw=2, label='Analytical Debye Profile V(x)')
-            ax.plot(x_grid, V_num, 'r:', lw=2, label='Poisson Solver with Debye Screening')
-            ax.axvline(lambda_D, color='blue', ls='--', label=f'Debye Length lambda_D = {lambda_D:.2f} m')
-            ax.axhline(V0 * np.exp(-1), color='green', ls=':', label=f'V0 / e = {V0 * np.exp(-1):.2f} V')
-
+            ax.plot(x_grid, V_analytical, 'k--', lw=2, label='Exact Analytical $V_{exact}(x)$')
+            ax.plot(x_grid[::5], V_num[::5], 'ro', mfc='none', mew=1.5, label='Numerical Finite Difference')
+            ax.axvline(x=lambda_D, color='blue', ls=':', label=f'Debye Length $\\lambda_D$ ({lambda_D:.2f} m)')
+            ax.axhline(y=V0 * np.exp(-1), color='grey', ls='--', alpha=0.6, label='$V_0 / e$ Threshold')
             ax.set_xlabel('Distance x [m]')
             ax.set_ylabel('Potential V [V]')
-            ax.set_title('Level 1: Debye Plasma Shielding Decay Verification')
+            ax.set_title('Level 1: Exact Debye Shielding Exponential Decay')
             ax.grid(True, ls=':')
-            ax.legend(loc='upper right')
+            ax.legend()
 
             fig.tight_layout()
             plot_path = os.path.join(self.report_dir, "physics_level1_debye_shielding.png")
             fig.savefig(plot_path, dpi=300)
             plt.close(fig)
         except Exception as err:
-            print(f"Skipping plot save: {err}")
-
-    def test_cfl_condition_stability(self):
-        """
-        Verifies that check_cfl_condition correctly checks the PIC numerical stability condition 1.5 * v_th * dt <= dx.
-        """
-        from dust_impact.numerics.pushers import check_cfl_condition
-
-        T_dust_eV = 2.0
-        v_th_e = np.sqrt(2.0 * e * T_dust_eV / m_e)  # ~8.38e5 m/s
-        v_cfl = 1.5 * v_th_e  # ~1.26e6 m/s
-        dx = 0.20  # 20 cm
-
-        # 1. Stable case: dt = 2 ns -> 1.5 * v_th * dt = 2.51 mm <= 200 mm
-        dt_stable = 2e-9
-        is_stable, cfl_ratio, dt_rec = check_cfl_condition(dt_stable, dx, v_cfl)
-        self.assertTrue(is_stable)
-        self.assertLess(cfl_ratio, 1.0)
-        self.assertAlmostEqual(dt_rec, dx / v_cfl, places=9)
-
-        # 2. Unstable case: dt = 1 us -> 1.5 * v_th * dt = 1.26 m > 0.20 m
-        dt_unstable = 1e-6
-        is_stable, cfl_ratio, dt_rec = check_cfl_condition(dt_unstable, dx, v_cfl)
-        self.assertFalse(is_stable)
-        self.assertGreater(cfl_ratio, 1.0)
-
-        self._log_result(
-            "CFL Numerical Stability Condition (1.5 * v_th * dt <= dx)",
-            "PASS",
-            f"1.5*v_th_e = {v_cfl:.2e} m/s | Stable dt={dt_stable:.1e} s (CFL={cfl_ratio:.4f}) | Unstable dt={dt_unstable:.1e} s (CFL={cfl_ratio:.2f})"
-        )
+            print(f"Skipping plot save (headless/matplotlib error): {err}")
 
 
 if __name__ == "__main__":

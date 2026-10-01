@@ -37,12 +37,11 @@ python main.py --config config.json --output-dir /cesta/k/vysledkum --no-visuali
 # Rychlý post-processing ze surových dat (přeskočí PIC výpočet a jen vygeneruje grafy):
 python main.py --config config.json --output-dir /cesta/k/vysledkum --plot-only
 
-# Vynucení 2D / 3D výpočtu:
-python main.py --dim 2
-python main.py --dim 3
+# Běžné spuštění podle jiné konfigurace (např. šablona):
+python main.py --config inputs/config_template.json
 
 # Spuštění přes instalovaný příkaz:
-dust-impact --config inputs/config_3d_template.json --output-dir outputs/run_01
+dust-impact --config inputs/config_template.json --output-dir outputs/run_01
 ```
 
 ### 2. Spuštění z Python skriptu:
@@ -55,7 +54,6 @@ main(
     config_file="config.json",
     output_dir="outputs/run_01",
     plot_only=False,
-    dim_override=3,
     visualize_results=False
 )
 ```
@@ -97,7 +95,6 @@ pip install -e .
 | `--plot-only` | | **Režim post-processingu:** Přeskočí fyzikální simulaci, načte existující `.npz` a pouze vygeneruje grafy a animace. |
 | `--no-visualize` | | Vypne interaktivní okna grafů (vynutí headless vykreslování přímo do souborů na disku). |
 | `--visualize` | | Vynutí interaktivní okna grafů (`plt.show()`), vyžaduje GUI/X11. |
-| `--dim <2\|3>` | | Přepíše dimenzi simulace (2D nebo 3D) bez nutnosti měnit JSON. |
 
 ---
 

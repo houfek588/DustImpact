@@ -1,11 +1,9 @@
 {
-    "simulation_dimension": 3,
     "toggles": {
         "enable_spis_background_field": true,
         "enable_plasma_self_field": true,
         "enable_antenna_particle_collection": true,
         "enable_rc_circuit_response": true,
-        "enable_debye_screening": true,
         "enable_antenna_bias_voltage": true
     },
     "params": {

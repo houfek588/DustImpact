@@ -25,7 +25,9 @@ class DustImpactSimulation3D:
                  spacecraft_mask_3d):
         self.p = params
         self.toggles = toggles
-        self.num_antennas = len(getattr(self.p.vtk_files, 'antenna_weighting_files', getattr(self.p.vtk_files, 'antenna_weighting', [])))
+        self.antenna_masks_3d = antenna_masks_3d
+        self.spacecraft_mask_3d = spacecraft_mask_3d
+        self.num_antennas = len(antenna_masks_3d) if antenna_masks_3d is not None else len(getattr(self.p.vtk_files, 'antenna_weighting_files', getattr(self.p.vtk_files, 'antenna_weighting', [])))
 
         self.V_bg_base = V_bg
         self.Ex_bg_base, self.Ey_bg_base, self.Ez_bg_base = Ex_bg, Ey_bg, Ez_bg
@@ -33,8 +35,6 @@ class DustImpactSimulation3D:
         self.Ex_bg, self.Ey_bg, self.Ez_bg = Ex_bg.copy(), Ey_bg.copy(), Ez_bg.copy()
 
         self.Ewx_list, self.Ewy_list, self.Ewz_list = Ewx_list, Ewy_list, Ewz_list
-        self.antenna_masks_3d = antenna_masks_3d
-        self.spacecraft_mask_3d = spacecraft_mask_3d
 
         v_th_e = np.sqrt(2 * e * self.p.T_dust_eV / m_e)
         v_th_i = np.sqrt(2 * e * self.p.T_dust_eV / self.p.m_i)
@@ -155,7 +155,7 @@ class DustImpactSimulation3D:
         self.voltage_ant = np.zeros((self.num_antennas, self.p.steps))
         for a_idx in range(self.num_antennas):
             if getattr(self.toggles, 'enable_antenna_bias_voltage', getattr(self.toggles, 'enable_antenna_bias', True)):
-                self.voltage_ant[a_idx, 0] = self.p.V_bias[a_idx]
+                self.voltage_ant[a_idx, 0] = self.p.V_bias[a_idx] if a_idx < len(self.p.V_bias) else 0.0
 
         self.V_self_grid = np.zeros((self.p.Nx, self.p.Ny, self.p.Nz))
         self.rho_grid = np.zeros((self.p.Nx, self.p.Ny, self.p.Nz))
@@ -218,7 +218,7 @@ class DustImpactSimulation3D:
 
         for a_idx in range(self.num_antennas):
             V_curr = self.voltage_ant[a_idx, max(0, step - 1)] if step > 0 else self.voltage_ant[a_idx, 0]
-            V_bias = self.p.V_bias[a_idx]
+            V_bias = self.p.V_bias[a_idx] if a_idx < len(self.p.V_bias) else 0.0
             dV = V_curr - V_bias
 
             if abs(dV) > 1e-6:
@@ -355,7 +355,7 @@ class DustImpactSimulation3D:
 
             if getattr(self.toggles, 'enable_antenna_particle_collection', True) and np.any(crossed_ant):
                 n_crossed = np.sum(crossed_ant)
-                eff = self.p.collection_eff[a_idx]
+                eff = self.p.collection_eff[a_idx] if a_idx < len(self.p.collection_eff) else 1.0
                 absorbed_mask = np.random.rand(n_crossed) < eff
 
                 global_active_idx = np.where(new_active)[0]
@@ -436,11 +436,12 @@ class DustImpactSimulation3D:
                 self.tot_curr[a_idx, step] = I_tot
 
                 if step > 0:
-                    dV_dt = I_tot / self.p.C_ant[a_idx]
+                    c_ant = self.p.C_ant[a_idx] if a_idx < len(self.p.C_ant) else 1e-12
+                    r_ant = self.p.R_ant[a_idx] if a_idx < len(self.p.R_ant) else 1e6
+                    dV_dt = I_tot / c_ant
                     if getattr(self.toggles, 'enable_rc_circuit_response', True):
-                        v_bias = self.p.V_bias[a_idx] if getattr(self.toggles, 'enable_antenna_bias_voltage', True) else 0.0
-                        dV_dt -= (self.voltage_ant[a_idx, step - 1] - v_bias) / (
-                                    self.p.R_ant[a_idx] * self.p.C_ant[a_idx])
+                        v_bias = (self.p.V_bias[a_idx] if a_idx < len(self.p.V_bias) else 0.0) if getattr(self.toggles, 'enable_antenna_bias_voltage', True) else 0.0
+                        dV_dt -= (self.voltage_ant[a_idx, step - 1] - v_bias) / (r_ant * c_ant)
 
                     self.voltage_ant[a_idx, step] = self.voltage_ant[a_idx, step - 1] + dV_dt * self.p.dt
 

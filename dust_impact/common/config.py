@@ -15,7 +15,6 @@ class BaseSimulationToggles:
     enable_plasma_self_field: bool = True
     enable_antenna_particle_collection: bool = True
     enable_rc_circuit_response: bool = True
-    enable_debye_screening: bool = True
     enable_antenna_bias_voltage: bool = True
 
 
