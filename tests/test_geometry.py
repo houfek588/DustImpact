@@ -377,8 +377,6 @@ class TestPreparedGeometryAndIntegration(unittest.TestCase):
         self.assertEqual(params.antenna_resistance_Ohm, [100000.0, 100000.0, 100000.0])
         self.assertEqual(params.geometry.spis.weighting_threshold, 0.85)
         self.assertEqual(params.weighting_threshold, 0.85)
-        self.assertEqual(params.antenna_weighting_threshold, 0.85)
-        self.assertEqual(params.numeric.antenna_weighting_threshold, 0.85)
 
     def test_analytical_antenna_voltage_specification(self):
         from dust_impact.sim3d.config_loader import (
@@ -457,17 +455,17 @@ class TestPreparedGeometryAndIntegration(unittest.TestCase):
         idx_y_ant = int(round((1.8 - params.y_grid[0]) / params.dy))
         self.assertAlmostEqual(prep.V_bg[center_idx, idx_y_ant, center_idx], 0.0, places=3)
 
-    def test_physic_and_numeric_config_separation(self):
+    def test_physics_and_numeric_config_separation(self):
         from dust_impact.sim3d.config_loader import (
-            setup_simulation_parameters_3d, PhysicConfig, NumericConfig
+            setup_simulation_parameters_3d, PhysicsConfig, NumericConfig
         )
         params, toggles, plot_cfg = setup_simulation_parameters_3d(
             Vf=25.0, config_file="config.json"
         )
         # Check sub-dataclass attributes
-        self.assertEqual(params.physic.ion_mass_amu, 27.0)
-        self.assertEqual(params.physic.solar_wind_density_m3, 1e7)
-        self.assertEqual(params.physic.total_impact_charge_C, 5e-11)
+        self.assertEqual(params.physics.ion_mass_amu, 27.0)
+        self.assertEqual(params.physics.solar_wind_density_m3, 1e7)
+        self.assertEqual(params.physics.total_impact_charge_C, 5e-11)
         self.assertEqual(params.numeric.num_macroparticles, 20000)
         self.assertEqual(params.numeric.grid_nodes, [150, 150, 150])
         self.assertEqual(params.grid_nodes, [150, 150, 150])
@@ -481,7 +479,7 @@ class TestPreparedGeometryAndIntegration(unittest.TestCase):
         self.assertAlmostEqual(params.simulation_duration_s, 5e-7)
 
         # Check flat backwards-compatibility access
-        self.assertEqual(params.ion_mass_amu, params.physic.ion_mass_amu)
+        self.assertEqual(params.ion_mass_amu, params.physics.ion_mass_amu)
         self.assertEqual(params.num_macroparticles, params.numeric.num_macroparticles)
         self.assertEqual(params.grid_nodes_x, 150)
         self.assertEqual(params.domain_half_length_x_m, 10.0)
@@ -489,13 +487,9 @@ class TestPreparedGeometryAndIntegration(unittest.TestCase):
         self.assertEqual(params.L_x, 10.0)
         self.assertEqual(params.time_step_s, params.numeric.time_step_s)
 
-        # Check aliases
-        self.assertIs(params.physics, params.physic)
-        self.assertIs(params.numerics, params.numeric)
-
-        # Check direct dataclass construction with PhysicConfig / NumericConfig
+        # Check direct dataclass construction with PhysicsConfig / NumericConfig
         p_custom = SimulationParams3D(
-            physic=PhysicConfig(ion_mass_amu=45.0, total_impact_charge_C=8e-11),
+            physics=PhysicsConfig(ion_mass_amu=45.0, total_impact_charge_C=8e-11),
             numeric=NumericConfig(
                 num_macroparticles=12345,
                 grid_nodes=[30, 40, 50],
@@ -504,7 +498,7 @@ class TestPreparedGeometryAndIntegration(unittest.TestCase):
             )
         )
         self.assertEqual(p_custom.ion_mass_amu, 45.0)
-        self.assertEqual(p_custom.physic.ion_mass_amu, 45.0)
+        self.assertEqual(p_custom.physics.ion_mass_amu, 45.0)
         self.assertEqual(p_custom.total_impact_charge_C, 8e-11)
         self.assertEqual(p_custom.num_macroparticles, 12345)
         self.assertEqual(p_custom.numeric.num_macroparticles, 12345)
@@ -526,15 +520,15 @@ class TestPreparedGeometryAndIntegration(unittest.TestCase):
 
     def test_impact_config_structure(self):
         from dust_impact.sim3d.config_loader import (
-            setup_simulation_parameters_3d, PhysicConfig, ImpactConfig
+            setup_simulation_parameters_3d, PhysicsConfig, ImpactConfig
         )
         # Test loading from config.json with unified "impact" object
         params, toggles, plot_cfg = setup_simulation_parameters_3d(
             Vf=25.0, config_file="config.json"
         )
-        self.assertEqual(params.physic.impact.location, [-2.0, 2.0, 0.0])
-        self.assertEqual(params.physic.impact.direction, [1.0, -1.0, 0.0])
-        self.assertEqual(params.physic.impact.time_delay_s, 1e-08)
+        self.assertEqual(params.physics.impact.location, [-2.0, 2.0, 0.0])
+        self.assertEqual(params.physics.impact.direction, [1.0, -1.0, 0.0])
+        self.assertEqual(params.physics.impact.time_delay_s, 1e-08)
 
         self.assertEqual(params.impact.location, [-2.0, 2.0, 0.0])
         self.assertEqual(params.impact.direction, [1.0, -1.0, 0.0])
@@ -546,9 +540,9 @@ class TestPreparedGeometryAndIntegration(unittest.TestCase):
         self.assertEqual(params.impact_direction_vector, [1.0, -1.0, 0.0])
         self.assertEqual(params.impact_time_delay_s, 1e-08)
         self.assertEqual(params.t_delay, 1e-08)
-        self.assertEqual(params.physic.impact_location_xyz_m, [-2.0, 2.0, 0.0])
-        self.assertEqual(params.physic.impact_direction_vector, [1.0, -1.0, 0.0])
-        self.assertEqual(params.physic.impact_time_delay_s, 1e-08)
+        self.assertEqual(params.physics.impact_location_xyz_m, [-2.0, 2.0, 0.0])
+        self.assertEqual(params.physics.impact_direction_vector, [1.0, -1.0, 0.0])
+        self.assertEqual(params.physics.impact_time_delay_s, 1e-08)
 
         # Test direct creation via ImpactConfig
         custom_impact = ImpactConfig(location=[1.0, -1.0, 2.0], direction=[0.0, 0.0, 1.0], time_delay_s=5e-9)
@@ -561,7 +555,7 @@ class TestPreparedGeometryAndIntegration(unittest.TestCase):
         self.assertEqual(p_custom.impact.time_delay_s, 5e-9)
         self.assertEqual(p_custom.impact_time_delay_s, 5e-9)
         self.assertEqual(p_custom.t_delay, 5e-9)
-        self.assertEqual(p_custom.physic.impact.location, [1.0, -1.0, 2.0])
+        self.assertEqual(p_custom.physics.impact.location, [1.0, -1.0, 2.0])
 
 
 if __name__ == '__main__':

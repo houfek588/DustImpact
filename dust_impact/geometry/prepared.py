@@ -232,9 +232,7 @@ def build_simulation_geometry(params: Any) -> PreparedGeometry3D:
             Vw = np.zeros((Nx, Ny, Nz))
 
         threshold = sc_threshold
-        if hasattr(params, 'antenna_weighting_threshold') and params.antenna_weighting_threshold is not None:
-            threshold = params.antenna_weighting_threshold
-        elif hasattr(params, 'weighting_threshold') and params.weighting_threshold is not None:
+        if hasattr(params, 'weighting_threshold') and params.weighting_threshold is not None:
             threshold = params.weighting_threshold
 
         mask = extract_enclosed_conductor_mask(

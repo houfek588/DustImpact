@@ -185,8 +185,9 @@ dust_impact/
     ├── field_solver.py # Řešič Poissonovy rovnice a elektrostatických polí (FieldSolver3D)
     ├── collector.py  # Sběr náboje a integrace anténních RC obvodů (AntennaCircuitCollector)
     ├── sim_core.py   # Hlavní orchestrátor 3D simulace (DustImpactSimulation3D)
+    ├── params.py     # Dataclass modely parametrů simulace (SimulationParams3D)
+    ├── config_loader.py # Načítání JSON konfigurace, validace a normalizace cest
     ├── runner.py     # CLI orchestrátor běhu simulace
-    ├── config_loader.py # Dataclass parametry a validace konfigurace
     └── plotting.py   # Vykreslování grafů a generování animací
 
 ```

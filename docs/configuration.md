@@ -14,7 +14,7 @@ Konfigurační JSON soubor je logicky rozdělen do 5 hlavních sekcí:
 {
     "geometry": { ... },   // Definice geometrie (SPIS VTK sítě vs. Analytická tělesa)
     "toggles":  { ... },   // Booleovské přepínače fyzikálních modulů
-    "physic":   { ... },   // Fyzikální vlastnosti plazmatu, náboje a dopadu (impact)
+    "physics":  { ... },   // Fyzikální vlastnosti plazmatu, náboje a dopadu (impact)
     "numeric":  { ... },   // Numerické parametry mřížky, časového kroku a integrace
     "plotting": { ... }    // Nastavení výstupů, ukládání (HDF5/NPZ), grafů a animací
 }
@@ -159,12 +159,12 @@ Booleovské přepínače, které umožňují izolovat jednotlivé fyzikální me
 
 ---
 
-## 3. Sekce `"physic"`
+## 3. Sekce `"physics"`
 
 Obsahuje materiálové a plazmatické parametry slunečního větru, impaktního mraku a charakteristiku dopadu mikrometeoroidu.
 
 ```json
-"physic": {
+"physics": {
     "ion_mass_amu": 27.0,
     "impact_cloud_temperature_eV": 2.0,
     "solar_wind_electron_temp_eV": 15.0,

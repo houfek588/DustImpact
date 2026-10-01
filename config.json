@@ -35,7 +35,7 @@
         "enable_rc_circuit_response": true,
         "enable_antenna_bias_voltage": true
     },
-    "physic": {
+    "physics": {
         "ion_mass_amu": 27.0,
         "impact_cloud_temperature_eV": 2.0,
         "solar_wind_electron_temp_eV": 15.0,

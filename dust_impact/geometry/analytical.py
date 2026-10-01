@@ -376,10 +376,8 @@ def build_analytical_simulation_geometry(params: Any, analytical_config: Any):
         ant = ant_geoms[i]
         v_ant = getattr(ant, 'effective_voltage', None)
         if v_ant is None:
-            v_ant = getattr(ant, 'voltage_V', getattr(ant, 'potential_V', getattr(ant, 'bias_voltage_V', None)))
-        if v_ant is None:
-            v_ant = 0.0
-        v_ant = float(v_ant)
+            v_ant = getattr(ant, 'voltage_V', 0.0)
+        v_ant = float(v_ant) if v_ant is not None else 0.0
         effective_biases.append(v_ant)
         rhs_bg[antenna_masks[i]] = v_ant
     rhs_list.append(rhs_bg)

@@ -51,12 +51,32 @@ from dust_impact.geometry.prepared import (
     PreparedGeometry3D,
     build_simulation_geometry
 )
+from dust_impact.geometry.config import (
+    SpisSpacecraftConfig,
+    SpisAntennaGeometry,
+    SpisGeometryConfig,
+    AnalyticalSpacecraftPart,
+    AnalyticalAntennaGeometry,
+    AnalyticalGeometryConfig,
+    GeometryConfig,
+    VTKFilesConfig,
+)
 
 __all__ = [
     # Container & Builder
     "PreparedGeometry3D",
     "build_simulation_geometry",
     "build_analytical_simulation_geometry",
+
+    # Configs
+    "SpisSpacecraftConfig",
+    "SpisAntennaGeometry",
+    "SpisGeometryConfig",
+    "AnalyticalSpacecraftPart",
+    "AnalyticalAntennaGeometry",
+    "AnalyticalGeometryConfig",
+    "GeometryConfig",
+    "VTKFilesConfig",
 
     # Voxelizer
     "detect_metal_mask_3d",
