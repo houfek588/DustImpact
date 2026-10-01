@@ -21,8 +21,18 @@ from dust_impact.sim3d.config_loader import SimulationParams3D, SimulationToggle
 
 class DustImpactSimulation3D:
     def __init__(self, params: SimulationParams3D, toggles: SimulationToggles3D,
-                 V_bg, Vw_grids, Ex_bg, Ey_bg, Ez_bg, Ewx_list, Ewy_list, Ewz_list, antenna_masks_3d,
-                 spacecraft_mask_3d):
+                 V_bg, Vw_grids=None, Ex_bg=None, Ey_bg=None, Ez_bg=None,
+                 Ewx_list=None, Ewy_list=None, Ewz_list=None, antenna_masks_3d=None,
+                 spacecraft_mask_3d=None):
+        if hasattr(V_bg, 'antenna_masks_3d') and hasattr(V_bg, 'spacecraft_mask_3d'):
+            geom = V_bg
+            V_bg = geom.V_bg
+            Vw_grids = geom.Vw_grids
+            Ex_bg, Ey_bg, Ez_bg = geom.Ex_bg, geom.Ey_bg, geom.Ez_bg
+            Ewx_list, Ewy_list, Ewz_list = geom.Ewx_list, geom.Ewy_list, geom.Ewz_list
+            antenna_masks_3d = geom.antenna_masks_3d
+            spacecraft_mask_3d = geom.spacecraft_mask_3d
+
         self.p = params
         self.toggles = toggles
         self.antenna_masks_3d = antenna_masks_3d

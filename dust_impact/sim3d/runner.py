@@ -14,7 +14,7 @@ from dust_impact.common.io import save_results, load_results
 from dust_impact.common.vtk_export import export_simulation_to_paraview
 from dust_impact.numerics.pushers import check_cfl_condition
 from dust_impact.sim3d.config_loader import setup_simulation_parameters_3d
-from dust_impact.sim3d.vtk_reader import load_and_interpolate_vtk
+from dust_impact.geometry import build_simulation_geometry, PreparedGeometry3D
 from dust_impact.sim3d.sim_core import DustImpactSimulation3D
 from dust_impact.sim3d.plotting import plot_simulation_results_3d
 
@@ -67,7 +67,8 @@ def run_3d_simulation(
               f"  -> Rychlé elektrony (1.5*v_th) urazí za krok {v_cfl * sim_params.dt * 1e3:.2f} mm, což přesahuje velikost buňky {dx_min * 1e3:.2f} mm.\n"
               f"  -> Doporučený maximální časový krok: dt <= {dt_max_rec:.2e} s")
 
-    V_bg, Vw_grids, Ex_bg, Ey_bg, Ez_bg, Ewx, Ewy, Ewz, ant_masks, sc_mask = load_and_interpolate_vtk(sim_params)
+    prep_geom = build_simulation_geometry(sim_params)
+    print(f"  [OK] Geometrie připravena: {prep_geom.summary()}")
 
     PROVEST_VYPOCET = (not plot_only) and getattr(plot_config, 'run_physical_simulation', True)
 
@@ -75,8 +76,7 @@ def run_3d_simulation(
         print("\n=== KROK 2: Spouštím 3D fyzikální PIC simulaci ===")
         t_pic_start = time.perf_counter()
         sim = DustImpactSimulation3D(
-            sim_params, sim_toggles,
-            V_bg, Vw_grids, Ex_bg, Ey_bg, Ez_bg, Ewx, Ewy, Ewz, ant_masks, sc_mask
+            sim_params, sim_toggles, prep_geom
         )
 
         cp_file = primary_output_path if plot_config.enable_checkpointing else None

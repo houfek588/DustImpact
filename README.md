@@ -156,22 +156,60 @@ dust-impact --config /cesta/k/config.json --output-dir /mnt/results/${SLURM_JOB_
 * **Matplotlib backend:** Na Linuxových serverech bez grafického prostředí (bez `$DISPLAY`) nebo při zadání `--no-visualize` / `--plot-only` skript automaticky inicializuje neinteraktivní backend `matplotlib.use('Agg')`. Všechna volání `plt.show()` a manipulace s GUI okny jsou bezpečně přeskočena.
 * **Vyhodnocování cest v JSONu:** Všechny relativní cesty k datům a VTK souborům v konfiguračním JSONu jsou automaticky vyhodnocovány vůči umístění daného JSON souboru. Skript tak lze spolehlivě volat z jakéhokoliv pracovního adresáře.
 
+## 🏗️ Architektura a samostatné moduly projektu
+
+Projekt je navržen podle principů modulární vědecké architektury s jasným oddělením odpovědností:
+
+```
+dust_impact/
+├── geometry/         # Samostatný modul pro geometrii, voxelizaci a přípravu vstupů
+│   ├── voxelizer.py  # Detekce vodivých těles, prahování gradientu, binární masky (koule, kvádr, válec)
+│   ├── surface.py    # Ray-tracing na síti i voxelové mřížce, normála povrchu, bod dopadu prachu
+│   ├── analytical.py # Analytická tělesa (koule, box) s přesným potenciálem V a polem E (Laplace / Debye)
+│   ├── spis_loader.py# Načítání SPIS VTK polygonálních sítí, ImageData vzorkování, enclosed-points testy
+│   └── prepared.py   # Kontejner PreparedGeometry3D a orchestrátor build_simulation_geometry
+├── physics/          # Analytické a empirické fyzikální zákony
+│   ├── ramo_shockley.py # Výpočet indukovaných proudů do antén v 3D
+│   ├── charging.py   # Nabíjení těles v plazmatu (Cassini / Solar Orbiter OML teorie)
+│   └── constants.py  # Fyzikální konstanty (SI jednotky)
+├── numerics/         # Numerické algoritmy a jádra řešičů
+│   ├── poisson.py    # 3D Poissonův řešič (PyAMG algebraický multigrid / SciPy sparse BiCGSTAB)
+│   ├── pushers.py    # 3D Boris / Leap-Frog částicový integrátor a CFL stabilita
+│   └── interpolators.py # Trilineární 3D interaktivní interpolátory (Cloud-in-Cell)
+├── common/           # Společná infrastruktura
+│   ├── io.py         # Ukládání a načítání HDF5 (.h5), NPZ s JSON metadaty a rotující checkpointy
+│   ├── vtk_export.py # Export časových řad polí a částic pro ParaView (.vti, .vtp, .pvd)
+│   └── circuits.py   # Integrování RC odezvy anténního předzesilovače
+└── sim3d/            # Řídicí vrstva 3D PIC simulace
+    ├── sim_core.py   # Výpočetní jádro DustImpactSimulation3D
+    ├── runner.py     # CLI orchestrátor běhu simulace
+    ├── config_loader.py # Dataclass parametry a validace konfigurace
+    └── plotting.py   # Vykreslování grafů a generování animací
+
+```
+
 ---
 
 ## 🧪 Spuštění verifikačních testů
 
-Projekt disponuje ucelenou testovací sadou 29 testů pokrývajících:
-1. **Analytickou 3D verifikaci (`test_physics_analytical_3d.py`):**
+Projekt disponuje ucelenou testovací sadou **39 unit testů** pokrývajících:
+1. **Zpracování geometrie (`test_geometry.py`):**
+   * Voxelizace geometrických těles (koule, kvádry, válce).
+   * Detekce kovových povrchů z gradientu váhových potenciálů (`detect_metal_mask_3d`).
+   * Analytické elektrostatické modely (vakuum i Debyeovo stínění, shoda s analytickými vztahy $V(r)$ a $\mathbf{E}(r)$).
+   * Ray-tracing na mřížce a výpočet výchozího bodu a normály dopadu.
+   * Kontejner `PreparedGeometry3D` a integrace do řešiče `DustImpactSimulation3D`.
+2. **Analytickou 3D fyzikální verifikaci (`test_physics_analytical_3d.py`):**
    * 3D Ramo-Shockley odezva antény na letící náboj (přesný průběh $I(t)$ a píky proudu).
    * 3D Poissonův řešič pro Gaussovský nábojový oblak ($V(r) \sim \frac{\text{erf}(r/\sigma)}{r}$).
    * Metoda vytvořených řešení (MMS) a ověření 2. řádu konvergence $\mathcal{O}(dx^2)$ diferenčního operátoru.
    * 3D plazmatické Langmuirovy oscilace (FFT spektrum kmitů částic vs. $\omega_{pe}$).
-2. **Fyzikální zákony a obvody (`test_physics_level1.py`, `test_physics_level2.py`):**
+3. **Fyzikální zákony a obvody (`test_physics_level1.py`, `test_physics_level2.py`):**
    * Globální zachování náboje v 3D PIC, Debyeovo stínění, analytická odezva RC obvodu antény, ambipolární expanze.
-3. **I/O formáty a ParaView export (`test_io_formats.py`):**
+4. **I/O formáty a ParaView export (`test_io_formats.py`):**
    * HDF5, NPZ s JSON metadaty, rotující checkpointy a generování `.vti`/`.vtp`/`.pvd`.
 
-Spuštění všech testů:
+Spuštění všech 39 testů:
 ```bash
 python -m unittest discover -s tests
 ```

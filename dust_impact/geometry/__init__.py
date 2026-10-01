@@ -1,0 +1,79 @@
+# -*- coding: utf-8 -*-
+"""
+Geometry subpackage for the 3D Dust Impact PIC simulation.
+Handles:
+- Spacecraft geometry processing (PyVista VTK mesh loading, surface extraction).
+- Voxelization (gradient metal detection, 3D binary masks for spacecraft and antennas).
+- Analytical geometry definitions (exact potentials and electric fields for spheres, boxes, cylinders).
+- Surface ray-tracing, dust impact point intersection, and outward normal calculation.
+- Geometry preparation and packaging into PreparedGeometry3D for the solver.
+"""
+
+from dust_impact.geometry.voxelizer import (
+    detect_metal_mask_3d,
+    voxelize_sphere,
+    voxelize_box,
+    voxelize_cylinder
+)
+
+from dust_impact.geometry.surface import (
+    interpolate_field_3d,
+    ray_trace_mesh,
+    ray_march_voxel_grid,
+    compute_surface_normal_from_potential,
+    compute_impact_intersection_and_normal
+)
+
+from dust_impact.geometry.analytical import (
+    AnalyticalConductor,
+    AnalyticalSphere,
+    AnalyticalBox,
+    generate_synthetic_analytical_fields
+)
+
+from dust_impact.geometry.spis_loader import (
+    read_spis_mesh,
+    extract_potential_from_mesh,
+    sample_mesh_to_grid,
+    extract_enclosed_conductor_mask,
+    extract_antenna_bias_from_spis,
+    HAS_PYVISTA
+)
+
+from dust_impact.geometry.prepared import (
+    PreparedGeometry3D,
+    build_simulation_geometry
+)
+
+__all__ = [
+    # Container & Builder
+    "PreparedGeometry3D",
+    "build_simulation_geometry",
+
+    # Voxelizer
+    "detect_metal_mask_3d",
+    "voxelize_sphere",
+    "voxelize_box",
+    "voxelize_cylinder",
+
+    # Surface & Ray Tracing
+    "interpolate_field_3d",
+    "ray_trace_mesh",
+    "ray_march_voxel_grid",
+    "compute_surface_normal_from_potential",
+    "compute_impact_intersection_and_normal",
+
+    # Analytical
+    "AnalyticalConductor",
+    "AnalyticalSphere",
+    "AnalyticalBox",
+    "generate_synthetic_analytical_fields",
+
+    # SPIS Loader
+    "read_spis_mesh",
+    "extract_potential_from_mesh",
+    "sample_mesh_to_grid",
+    "extract_enclosed_conductor_mask",
+    "extract_antenna_bias_from_spis",
+    "HAS_PYVISTA",
+]
