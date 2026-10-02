@@ -43,6 +43,7 @@ class DustImpactSimulation3D:
         antenna_masks_3d=None,
         spacecraft_mask_3d=None,
     ):
+        antenna_geometries = None
         if hasattr(V_bg, 'antenna_masks_3d') and hasattr(V_bg, 'spacecraft_mask_3d'):
             geom = V_bg
             V_bg = geom.V_bg
@@ -51,6 +52,12 @@ class DustImpactSimulation3D:
             Ewx_list, Ewy_list, Ewz_list = geom.Ewx_list, geom.Ewy_list, geom.Ewz_list
             antenna_masks_3d = geom.antenna_masks_3d
             spacecraft_mask_3d = geom.spacecraft_mask_3d
+            antenna_geometries = getattr(geom, 'antenna_geometries', None)
+
+        if antenna_geometries is None and hasattr(params, 'geometry'):
+            geom_cfg = params.geometry
+            if getattr(geom_cfg, 'source', None) == 'analytical':
+                antenna_geometries = getattr(getattr(geom_cfg, 'analytical', None), 'antennas', None)
 
         self.p = params
         self.toggles = toggles
@@ -67,7 +74,9 @@ class DustImpactSimulation3D:
             self.combined_mask |= mask
 
         # Subsystems
-        self.particles = ParticleEnsemble(params, spacecraft_mask_3d, self.num_antennas)
+        self.particles = ParticleEnsemble(
+            params, spacecraft_mask_3d, self.num_antennas, antenna_geometries=antenna_geometries
+        )
         self.field_solver = FieldSolver3D(
             params, toggles, V_bg, Ex_bg, Ey_bg, Ez_bg,
             Ewx_list, Ewy_list, Ewz_list, self.combined_mask, self.num_antennas
