@@ -287,6 +287,7 @@ def setup_simulation_parameters_3d(
         simulation_duration_s=float(num_s.simulation_duration_s) if num_s.simulation_duration_s is not None else None,
         domain_half_length_m=[float(d) for d in num_s.domain_half_length_m],
         grid_nodes=[int(n) for n in num_s.grid_nodes],
+        field_precision=getattr(num_s, 'field_precision', 'float32'),
     )
 
     # 6. SimulationParams3D aggregation

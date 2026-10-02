@@ -63,6 +63,7 @@ class PreparedGeometry3D:
     spacecraft_mask_3d: np.ndarray
     impact_pos: List[float] = field(default_factory=lambda: [-2.0, 2.0, 0.0])
     impact_normal: List[float] = field(default_factory=lambda: [-0.7071, 0.7071, 0.0])
+    antenna_geometries: Optional[List[Any]] = None
 
     @property
     def num_antennas(self) -> int:
@@ -351,6 +352,16 @@ def build_simulation_geometry(params: Any) -> PreparedGeometry3D:
     if spis_v_bias:
         params.antenna_bias_voltage_V = spis_v_bias
         params.V_bias = spis_v_bias
+
+    target_dtype = np.float32 if getattr(params, 'field_precision', 'float32') == 'float32' else np.float64
+    V_bg_grid = np.ascontiguousarray(V_bg_grid, dtype=target_dtype)
+    Ex_bg = np.ascontiguousarray(Ex_bg, dtype=target_dtype)
+    Ey_bg = np.ascontiguousarray(Ey_bg, dtype=target_dtype)
+    Ez_bg = np.ascontiguousarray(Ez_bg, dtype=target_dtype)
+    Vw_grids = [np.ascontiguousarray(v, dtype=target_dtype) for v in Vw_grids]
+    Ewx_list = [np.ascontiguousarray(e, dtype=target_dtype) for e in Ewx_list]
+    Ewy_list = [np.ascontiguousarray(e, dtype=target_dtype) for e in Ewy_list]
+    Ewz_list = [np.ascontiguousarray(e, dtype=target_dtype) for e in Ewz_list]
 
     return PreparedGeometry3D(
         V_bg=V_bg_grid,

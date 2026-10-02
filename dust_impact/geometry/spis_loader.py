@@ -129,6 +129,17 @@ def extract_enclosed_conductor_mask(
     """
     dims = pic_grid.dimensions
     if mesh is not None:
+        # 1. Direct enclosure check for surface meshes
+        try:
+            if not bool(mesh.point_data.keys()):
+                enclosed = pic_grid.select_enclosed_points(mesh, tolerance=1e-5)
+                mask = enclosed['SelectedPoints'].view(bool).reshape(dims)
+                if np.sum(mask) > 0:
+                    return mask
+        except Exception:
+            pass
+
+        # 2. Iso-surface contour extraction from volumetric potential field
         try:
             body_keys = list(mesh.point_data.keys())
             key_body = body_keys[0] if body_keys else 'Potential'

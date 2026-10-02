@@ -139,6 +139,7 @@ class NumericConfig:
     simulation_duration_s: Optional[float] = None
     domain_half_length_m: List[float] = field(default_factory=lambda: [5.0, 5.0, 5.0])
     grid_nodes: List[int] = field(default_factory=lambda: [35, 35, 35])
+    field_precision: str = "float32"
 
     # Backward compatibility flat fields
     domain_half_length_x_m: Optional[float] = None
@@ -215,6 +216,15 @@ class SimulationParams3D(BaseSimulationParams):
     antenna_bias_voltage_V: List[float] = field(default_factory=list)
     antenna_collection_efficiency: Optional[List[float]] = None
     weighting_threshold: float = 0.85
+
+    @property
+    def field_precision(self) -> str:
+        return getattr(self.numeric, 'field_precision', 'float32')
+
+    @field_precision.setter
+    def field_precision(self, val: str) -> None:
+        if hasattr(self, 'numeric') and self.numeric is not None:
+            self.numeric.field_precision = str(val)
 
     @property
     def Nx(self) -> int:

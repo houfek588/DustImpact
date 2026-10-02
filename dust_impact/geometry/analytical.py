@@ -429,6 +429,16 @@ def build_analytical_simulation_geometry(params: Any, analytical_config: Any):
 
     print(f"  -> Analytická pole vyřešena pro {num_antennas} antén a těleso sondy (V_sc = {V_sc:.2f} V).")
 
+    target_dtype = np.float32 if getattr(params, 'field_precision', 'float32') == 'float32' else np.float64
+    V_bg = np.ascontiguousarray(V_bg, dtype=target_dtype)
+    Ex_bg = np.ascontiguousarray(Ex_bg, dtype=target_dtype)
+    Ey_bg = np.ascontiguousarray(Ey_bg, dtype=target_dtype)
+    Ez_bg = np.ascontiguousarray(Ez_bg, dtype=target_dtype)
+    Vw_grids = [np.ascontiguousarray(v, dtype=target_dtype) for v in Vw_grids]
+    Ewx_list = [np.ascontiguousarray(e, dtype=target_dtype) for e in Ewx_list]
+    Ewy_list = [np.ascontiguousarray(e, dtype=target_dtype) for e in Ewy_list]
+    Ewz_list = [np.ascontiguousarray(e, dtype=target_dtype) for e in Ewz_list]
+
     return PreparedGeometry3D(
         V_bg=V_bg,
         Vw_grids=Vw_grids,
@@ -441,5 +451,6 @@ def build_analytical_simulation_geometry(params: Any, analytical_config: Any):
         antenna_masks_3d=antenna_masks,
         spacecraft_mask_3d=spacecraft_mask,
         impact_pos=list(impact_pt),
-        impact_normal=list(normal_vec)
+        impact_normal=list(normal_vec),
+        antenna_geometries=ant_geoms,
     )

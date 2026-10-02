@@ -25,7 +25,8 @@ from dust_impact.geometry.surface import (
     intersect_ray_sphere,
     intersect_ray_box,
     intersect_ray_cylinder,
-    intersect_ray_analytical_spacecraft
+    intersect_ray_analytical_spacecraft,
+    check_wire_collision_3d
 )
 
 from dust_impact.geometry.analytical import (

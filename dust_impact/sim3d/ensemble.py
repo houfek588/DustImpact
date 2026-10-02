@@ -5,13 +5,14 @@ Handles electron and ion state arrays, injection geometries, phase space trackin
 and continuous collision detection (CCD) against spacecraft and antenna structures.
 """
 
-from typing import Tuple, List, Optional
+from typing import Tuple, List, Optional, Any
 import numpy as np
 
 from dust_impact.physics.constants import e, m_e
 from dust_impact.physics.ramo_shockley import calc_induced_current
 from dust_impact.numerics.pushers import leapfrog_step_3d
 from dust_impact.sim3d.config_loader import SimulationParams3D
+from dust_impact.geometry.surface import check_wire_collision_3d
 
 
 class ParticleEnsemble:
@@ -19,10 +20,17 @@ class ParticleEnsemble:
     Manages electron and ion macro-particles in 3D Cartesian coordinates.
     """
 
-    def __init__(self, params: SimulationParams3D, spacecraft_mask_3d: np.ndarray, num_antennas: int):
+    def __init__(
+        self,
+        params: SimulationParams3D,
+        spacecraft_mask_3d: np.ndarray,
+        num_antennas: int,
+        antenna_geometries: Optional[List[Any]] = None,
+    ):
         self.p = params
         self.spacecraft_mask_3d = spacecraft_mask_3d
         self.num_antennas = num_antennas
+        self.antenna_geometries = antenna_geometries
 
         v_th_e = np.sqrt(2 * e * self.p.T_dust_eV / m_e)
         v_th_i = np.sqrt(2 * e * self.p.T_dust_eV / self.p.m_i)
@@ -215,13 +223,29 @@ class ParticleEnsemble:
         new_active[destroyed_by_sc] = False
 
         for a_idx in range(self.num_antennas):
-            idx_x_ant = np.clip(np.floor((x[new_active] - self.p.x_grid[0]) / self.p.dx), 0, self.p.Nx - 1).astype(np.int64)
-            idx_y_ant = np.clip(np.floor((y[new_active] - self.p.y_grid[0]) / self.p.dy), 0, self.p.Ny - 1).astype(np.int64)
-            idx_z_ant = np.clip(np.floor((z[new_active] - self.p.z_grid[0]) / self.p.dz), 0, self.p.Nz - 1).astype(np.int64)
+            ant_geom = (
+                self.antenna_geometries[a_idx]
+                if self.antenna_geometries is not None and a_idx < len(self.antenna_geometries)
+                else None
+            )
 
-            is_inside = antenna_masks_3d[a_idx][idx_x_ant, idx_y_ant, idx_z_ant]
+            if ant_geom is not None and hasattr(ant_geom, 'p_start') and hasattr(ant_geom, 'p_end'):
+                # Exact sub-grid geometric wire collision test
+                p_start = ant_geom.p_start
+                p_end = ant_geom.p_end
+                wire_r = getattr(ant_geom, 'radius', 0.015)
+                is_inside = check_wire_collision_3d(
+                    x[new_active], y[new_active], z[new_active],
+                    p_start, p_end, wire_r
+                )
+            else:
+                # Discrete grid mask lookup (fallback for SPIS meshes)
+                idx_x_ant = np.clip(np.floor((x[new_active] - self.p.x_grid[0]) / self.p.dx), 0, self.p.Nx - 1).astype(np.int64)
+                idx_y_ant = np.clip(np.floor((y[new_active] - self.p.y_grid[0]) / self.p.dy), 0, self.p.Ny - 1).astype(np.int64)
+                idx_z_ant = np.clip(np.floor((z[new_active] - self.p.z_grid[0]) / self.p.dz), 0, self.p.Nz - 1).astype(np.int64)
+                is_inside = antenna_masks_3d[a_idx][idx_x_ant, idx_y_ant, idx_z_ant]
+
             is_outside = ~is_inside
-
             was_out_act = was_outside[a_idx, new_active]
             crossed_ant = is_inside & was_out_act
             was_outside[a_idx, new_active] = is_outside

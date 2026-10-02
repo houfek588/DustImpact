@@ -517,3 +517,60 @@ def compute_impact_intersection_and_normal(
     print(f"  -> Vypočtená normála v místě dopadu: {params.impact_normal}")
 
     return intersection_point, normal_vector
+
+
+def check_wire_collision_3d(
+    x: np.ndarray,
+    y: np.ndarray,
+    z: np.ndarray,
+    p_start: Sequence[float],
+    p_end: Sequence[float],
+    wire_radius: float,
+) -> np.ndarray:
+    """
+    Vectorized sub-grid continuous collision test for a finite cylindrical wire.
+    Computes exact orthogonal distance from particles (x, y, z) to line segment p_start -> p_end.
+
+    Parameters
+    ----------
+    x, y, z : np.ndarray
+        1D arrays of particle coordinates in meters.
+    p_start : Sequence[float]
+        (x, y, z) starting point of cylinder axis.
+    p_end : Sequence[float]
+        (x, y, z) ending point of cylinder axis.
+    wire_radius : float
+        Physical radius of the wire conductor in meters.
+
+    Returns
+    -------
+    np.ndarray (bool)
+        Boolean mask of length len(x) where True indicates the particle is within wire_radius.
+    """
+    if len(x) == 0:
+        return np.zeros(0, dtype=bool)
+
+    p1 = np.asarray(p_start, dtype=np.float64)
+    p2 = np.asarray(p_end, dtype=np.float64)
+    axis = p2 - p1
+    axis_len_sq = float(np.dot(axis, axis))
+
+    if axis_len_sq < 1e-12:
+        dist_sq = (x - p1[0])**2 + (y - p1[1])**2 + (z - p1[2])**2
+        return dist_sq <= (wire_radius ** 2)
+
+    dx = x - p1[0]
+    dy = y - p1[1]
+    dz = z - p1[2]
+
+    # Projection parameter t clamped to [0.0, 1.0]
+    t = np.clip((dx * axis[0] + dy * axis[1] + dz * axis[2]) / axis_len_sq, 0.0, 1.0)
+
+    # Closest point on segment
+    proj_x = p1[0] + t * axis[0]
+    proj_y = p1[1] + t * axis[1]
+    proj_z = p1[2] + t * axis[2]
+
+    dist_perp_sq = (x - proj_x)**2 + (y - proj_y)**2 + (z - proj_z)**2
+    return dist_perp_sq <= (wire_radius ** 2)
+
