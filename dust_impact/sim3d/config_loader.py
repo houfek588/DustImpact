@@ -1,15 +1,16 @@
 # -*- coding: utf-8 -*-
 """
 Configuration loader and parser for 3D PIC simulation.
-Parses JSON configuration files, normalizes parameter structures,
+Validates input JSON using declarative Pydantic v2 schemas (fail-fast),
 resolves file paths, and instantiates typed SimulationParams3D, SimulationToggles3D,
 and PlottingConfig3D dataclasses.
 """
 
 import os
 import json
-from dataclasses import fields
-from typing import Tuple, List, Dict, Any, Optional
+from typing import Tuple, Optional
+
+from pydantic import ValidationError
 
 from dust_impact.geometry.config import (
     SpisSpacecraftConfig,
@@ -30,9 +31,17 @@ from dust_impact.sim3d.params import (
     NumericConfig,
     SimulationParams3D,
 )
+from dust_impact.sim3d.schema import (
+    SimulationConfigSchema,
+    AnalyticalSpacecraftPartSchema,
+    AnalyticalGeometrySchema,
+    SpisGeometrySchema,
+    format_validation_error,
+)
 
 __all__ = [
     "setup_simulation_parameters_3d",
+    "load_and_validate_config",
     "SimulationParams3D",
     "SimulationToggles3D",
     "PlottingConfig3D",
@@ -48,6 +57,7 @@ __all__ = [
     "AnalyticalGeometryConfig",
     "GeometryConfig",
     "VTKFilesConfig",
+    "SimulationConfigSchema",
 ]
 
 
@@ -63,160 +73,34 @@ def _resolve_path(base_dir: str, path: str) -> str:
     return candidate
 
 
-def _normalize_steps_and_time(p_kwargs: Dict[str, Any]) -> None:
-    """Convert simulation_duration_s to num_time_steps if num_time_steps not explicitly set."""
-    if 'simulation_duration_s' in p_kwargs and 'num_time_steps' not in p_kwargs:
-        dt = float(p_kwargs.get('time_step_s', 2e-9))
-        p_kwargs['num_time_steps'] = int(round(float(p_kwargs['simulation_duration_s']) / dt))
-
-
-def _normalize_grid_and_domain(p_kwargs: Dict[str, Any]) -> None:
-    """Normalize grid_nodes and domain_half_length_m vectors and flat aliases."""
-    _normalize_steps_and_time(p_kwargs)
-
-    # Normalize grid_nodes
-    if 'grid_nodes' in p_kwargs:
-        gn = p_kwargs['grid_nodes']
-        if isinstance(gn, (list, tuple)) and len(gn) == 3:
-            p_kwargs['grid_nodes'] = [int(v) for v in gn]
-        elif isinstance(gn, (int, float)):
-            p_kwargs['grid_nodes'] = [int(gn), int(gn), int(gn)]
-    elif all(k in p_kwargs for k in ('grid_nodes_x', 'grid_nodes_y', 'grid_nodes_z')):
-        p_kwargs['grid_nodes'] = [
-            int(p_kwargs['grid_nodes_x']),
-            int(p_kwargs['grid_nodes_y']),
-            int(p_kwargs['grid_nodes_z'])
-        ]
-
-    # Normalize domain_half_length_m
-    if 'domain_half_length_m' in p_kwargs:
-        dhl = p_kwargs['domain_half_length_m']
-        if isinstance(dhl, (list, tuple)) and len(dhl) == 3:
-            p_kwargs['domain_half_length_m'] = [float(v) for v in dhl]
-        elif isinstance(dhl, (int, float)):
-            p_kwargs['domain_half_length_m'] = [float(dhl), float(dhl), float(dhl)]
-    elif all(
-        k in p_kwargs for k in ('domain_half_length_x_m', 'domain_half_length_y_m', 'domain_half_length_z_m')
-    ):
-        p_kwargs['domain_half_length_m'] = [
-            float(p_kwargs['domain_half_length_x_m']),
-            float(p_kwargs['domain_half_length_y_m']),
-            float(p_kwargs['domain_half_length_z_m'])
-        ]
-
-    if 'grid_nodes' in p_kwargs:
-        p_kwargs['grid_nodes_x'] = p_kwargs['grid_nodes'][0]
-        p_kwargs['grid_nodes_y'] = p_kwargs['grid_nodes'][1]
-        p_kwargs['grid_nodes_z'] = p_kwargs['grid_nodes'][2]
-    if 'domain_half_length_m' in p_kwargs:
-        p_kwargs['domain_half_length_x_m'] = p_kwargs['domain_half_length_m'][0]
-        p_kwargs['domain_half_length_y_m'] = p_kwargs['domain_half_length_m'][1]
-        p_kwargs['domain_half_length_z_m'] = p_kwargs['domain_half_length_m'][2]
-
-
-def _parse_impact_config(cfg: Dict[str, Any], p_kwargs: Dict[str, Any]) -> ImpactConfig:
-    """Extract and normalize ImpactConfig from JSON dictionary or flat kwargs."""
-    impact_data = None
-    if 'physics' in cfg and isinstance(cfg['physics'], dict) and 'impact' in cfg['physics']:
-        impact_data = cfg['physics']['impact']
-    elif 'impact' in cfg and isinstance(cfg['impact'], dict):
-        impact_data = cfg['impact']
-    elif 'impact' in p_kwargs and isinstance(p_kwargs['impact'], dict):
-        impact_data = p_kwargs['impact']
-
-    if impact_data:
-        loc = impact_data.get('location', [-2.0, 2.0, 0.0])
-        direc = impact_data.get('direction', [0.0, 0.0, 0.0])
-        t_del = impact_data.get('time_delay_s', 1e-6)
-        norm = impact_data.get('normal', None)
-
-        impact_obj = ImpactConfig(
-            location=list(loc), direction=list(direc), time_delay_s=float(t_del),
-            normal=list(norm) if norm is not None else None
+def _build_analytical_geometry(ana_schema: AnalyticalGeometrySchema) -> Tuple[GeometryConfig, VTKFilesConfig]:
+    """Convert validated AnalyticalGeometrySchema into runtime GeometryConfig and VTKFilesConfig."""
+    def _convert_part(p: AnalyticalSpacecraftPartSchema) -> AnalyticalSpacecraftPart:
+        subparts = [_convert_part(sp) for sp in p.parts]
+        return AnalyticalSpacecraftPart(
+            type=p.type,
+            center=list(p.center),
+            radius=float(p.radius),
+            dimensions=list(p.dimensions),
+            side_length=float(p.side_length) if p.side_length is not None else None,
+            p_start=list(p.p_start),
+            p_end=list(p.p_end),
+            voltage_V=float(p.voltage_V) if p.voltage_V is not None else None,
+            parts=subparts
         )
-        p_kwargs['impact'] = impact_obj
-        p_kwargs['impact_location_xyz_m'] = list(loc)
-        p_kwargs['impact_direction_vector'] = list(direc)
-        p_kwargs['impact_time_delay_s'] = float(t_del)
-        if norm is not None:
-            p_kwargs['impact_normal'] = list(norm)
-        return impact_obj
 
-    if any(k in p_kwargs for k in ('impact_location_xyz_m', 'impact_direction_vector', 'impact_time_delay_s', 'impact_normal')):
-        loc = p_kwargs.get('impact_location_xyz_m', [-2.0, 2.0, 0.0])
-        direc = p_kwargs.get('impact_direction_vector', [0.0, 0.0, 0.0])
-        t_del = p_kwargs.get('impact_time_delay_s', 1e-6)
-        norm = p_kwargs.get('impact_normal', None)
-        impact_obj = ImpactConfig(
-            location=list(loc), direction=list(direc), time_delay_s=float(t_del),
-            normal=list(norm) if norm is not None else None
-        )
-        p_kwargs['impact'] = impact_obj
-        p_kwargs['impact_location_xyz_m'] = list(loc)
-        p_kwargs['impact_direction_vector'] = list(direc)
-        p_kwargs['impact_time_delay_s'] = float(t_del)
-        if norm is not None:
-            p_kwargs['impact_normal'] = list(norm)
-        return impact_obj
-
-    default_impact = ImpactConfig()
-    p_kwargs['impact'] = default_impact
-    return default_impact
-
-
-def _parse_analytical_geometry(ana_data: Dict[str, Any], p_kwargs: Dict[str, Any]) -> Tuple[GeometryConfig, VTKFilesConfig]:
-    """Parse analytical geometry specifications (spacecraft shapes and antenna wires)."""
-    sc_data = ana_data.get('spacecraft', {})
-    parts_list = []
-    if 'parts' in sc_data and isinstance(sc_data['parts'], list):
-        for p in sc_data['parts']:
-            parts_list.append(AnalyticalSpacecraftPart(
-                **{k: v for k, v in p.items() if k in {f.name for f in fields(AnalyticalSpacecraftPart)}}
-            ))
-    sc_kwargs = {k: v for k, v in sc_data.items() if k in {f.name for f in fields(AnalyticalSpacecraftPart)} and k != 'parts'}
-    sc_part = AnalyticalSpacecraftPart(parts=parts_list, **sc_kwargs)
-    if sc_part.effective_voltage is not None:
-        p_kwargs['spacecraft_voltage_V'] = sc_part.effective_voltage
+    sc_part = _convert_part(ana_schema.spacecraft)
 
     ant_list = []
-    extracted_voltages = []
-    extracted_caps = []
-    extracted_res = []
-    has_caps = False
-    has_res = False
-    for a in ana_data.get('antennas', []):
-        v_val = a.get('voltage_V', 0.0)
-        v_float = float(v_val) if v_val is not None else 0.0
-        c_val = a.get('capacitance_F', None)
-        r_val = a.get('resistance_Ohm', None)
-
-        ant_obj = AnalyticalAntennaGeometry(
-            p_start=a.get('p_start', [0.0, 0.0, 0.0]),
-            p_end=a.get('p_end', [1.0, 0.0, 0.0]),
-            radius=float(a.get('radius', 0.015)),
-            voltage_V=v_float,
-            capacitance_F=float(c_val) if c_val is not None else None,
-            resistance_Ohm=float(r_val) if r_val is not None else None
-        )
-        ant_list.append(ant_obj)
-        extracted_voltages.append(v_float)
-        if c_val is not None:
-            has_caps = True
-            extracted_caps.append(float(c_val))
-        else:
-            extracted_caps.append(2e-12)
-
-        if r_val is not None:
-            has_res = True
-            extracted_res.append(float(r_val))
-        else:
-            extracted_res.append(100e3)
-
-    p_kwargs['antenna_bias_voltage_V'] = extracted_voltages
-    if has_caps:
-        p_kwargs['antenna_capacitance_F'] = extracted_caps
-    if has_res:
-        p_kwargs['antenna_resistance_Ohm'] = extracted_res
+    for a in ana_schema.antennas:
+        ant_list.append(AnalyticalAntennaGeometry(
+            p_start=list(a.p_start),
+            p_end=list(a.p_end),
+            radius=float(a.radius),
+            voltage_V=float(a.voltage_V),
+            capacitance_F=float(a.capacitance_F) if a.capacitance_F is not None else None,
+            resistance_Ohm=float(a.resistance_Ohm) if a.resistance_Ohm is not None else None
+        ))
 
     geom_config = GeometryConfig(
         source='analytical',
@@ -230,81 +114,37 @@ def _parse_analytical_geometry(ana_data: Dict[str, Any], p_kwargs: Dict[str, Any
     return geom_config, vtk_config
 
 
-def _parse_spis_geometry(geom_data: Dict[str, Any], base_dir: str, p_kwargs: Dict[str, Any]) -> Tuple[GeometryConfig, VTKFilesConfig]:
-    """Parse SPIS VTK mesh configuration and individual antenna circuit definitions."""
-    spis_data = geom_data.get('spis', {}) if isinstance(geom_data, dict) else {}
-    bg_f = _resolve_path(base_dir, spis_data.get('background_potential_file', 'inputs/spis_V_bg.vtk'))
-    thresh = float(spis_data.get('weighting_threshold', p_kwargs.get('weighting_threshold', 0.85)))
-    p_kwargs['weighting_threshold'] = thresh
+def _build_spis_geometry(spis_schema: SpisGeometrySchema, base_dir: str) -> Tuple[GeometryConfig, VTKFilesConfig]:
+    """Convert validated SpisGeometrySchema into runtime GeometryConfig and VTKFilesConfig."""
+    bg_f = _resolve_path(base_dir, spis_schema.background_potential_file)
+    thresh = float(spis_schema.weighting_threshold)
 
-    if 'spacecraft' in spis_data and isinstance(spis_data['spacecraft'], dict):
-        sc_data = spis_data['spacecraft']
-        sc_f = _resolve_path(base_dir, sc_data.get('weighting_file', 'inputs/spis_Vw_body.vtk'))
-        mesh_f = _resolve_path(base_dir, sc_data.get('surface_mesh_file', ''))
-        v_sc = sc_data.get('voltage_V', None)
-        if v_sc is not None:
-            p_kwargs['spacecraft_voltage_V'] = float(v_sc)
-        sc_obj = SpisSpacecraftConfig(weighting_file=sc_f, surface_mesh_file=mesh_f, voltage_V=float(v_sc) if v_sc is not None else None)
-    else:
-        sc_f = _resolve_path(base_dir, 'inputs/spis_Vw_body.vtk')
-        mesh_f = ''
-        sc_obj = SpisSpacecraftConfig(weighting_file=sc_f, surface_mesh_file=mesh_f)
+    sc_f = _resolve_path(base_dir, spis_schema.spacecraft.weighting_file)
+    mesh_f = _resolve_path(base_dir, spis_schema.spacecraft.surface_mesh_file)
+    v_sc = spis_schema.spacecraft.voltage_V
+    sc_obj = SpisSpacecraftConfig(
+        weighting_file=sc_f,
+        surface_mesh_file=mesh_f,
+        voltage_V=float(v_sc) if v_sc is not None else None
+    )
 
-    if 'antennas' in spis_data and isinstance(spis_data['antennas'], list):
-        ant_list = []
-        ant_fs = []
-        extracted_caps = []
-        extracted_res = []
-        extracted_volts = []
-        has_caps = False
-        has_res = False
-        has_volts = False
-        for a in spis_data['antennas']:
-            if isinstance(a, str):
-                f_path = _resolve_path(base_dir, a)
-                ant_list.append(SpisAntennaGeometry(weighting_file=f_path))
-                ant_fs.append(f_path)
-            elif isinstance(a, dict):
-                f_path = _resolve_path(base_dir, a.get('weighting_file', ''))
-                c_val = a.get('capacitance_F', None)
-                r_val = a.get('resistance_Ohm', None)
-                v_val = a.get('voltage_V', None)
-
-                if c_val is not None:
-                    has_caps = True
-                    extracted_caps.append(float(c_val))
-                else:
-                    extracted_caps.append(2e-12)
-
-                if r_val is not None:
-                    has_res = True
-                    extracted_res.append(float(r_val))
-                else:
-                    extracted_res.append(100e3)
-
-                if v_val is not None:
-                    has_volts = True
-                    extracted_volts.append(float(v_val))
-                else:
-                    extracted_volts.append(0.0)
-
-                ant_obj = SpisAntennaGeometry(
-                    weighting_file=f_path,
-                    voltage_V=float(v_val) if v_val is not None else None,
-                    capacitance_F=float(c_val) if c_val is not None else None,
-                    resistance_Ohm=float(r_val) if r_val is not None else None
-                )
-                ant_list.append(ant_obj)
-                ant_fs.append(f_path)
-        if has_caps:
-            p_kwargs['antenna_capacitance_F'] = extracted_caps
-        if has_res:
-            p_kwargs['antenna_resistance_Ohm'] = extracted_res
-        if has_volts:
-            p_kwargs['antenna_bias_voltage_V'] = extracted_volts
-    else:
-        ant_fs = [_resolve_path(base_dir, item) for item in spis_data.get('antenna_weighting_files', [])]
-        ant_list = [SpisAntennaGeometry(weighting_file=f) for f in ant_fs]
+    ant_list = []
+    ant_fs = []
+    for a in spis_schema.antennas:
+        if isinstance(a, str):
+            f_path = _resolve_path(base_dir, a)
+            ant_list.append(SpisAntennaGeometry(weighting_file=f_path))
+            ant_fs.append(f_path)
+        else:
+            f_path = _resolve_path(base_dir, a.weighting_file)
+            ant_obj = SpisAntennaGeometry(
+                weighting_file=f_path,
+                voltage_V=float(a.voltage_V) if a.voltage_V is not None else None,
+                capacitance_F=float(a.capacitance_F) if a.capacitance_F is not None else None,
+                resistance_Ohm=float(a.resistance_Ohm) if a.resistance_Ohm is not None else None
+            )
+            ant_list.append(ant_obj)
+            ant_fs.append(f_path)
 
     spis_cfg = SpisGeometryConfig(
         background_potential_file=bg_f,
@@ -322,51 +162,6 @@ def _parse_spis_geometry(geom_data: Dict[str, Any], base_dir: str, p_kwargs: Dic
         antenna_weighting_files=ant_fs
     )
     return geom_config, vtk_config
-
-
-def _parse_legacy_vtk_geometry(vtk_data: Dict[str, Any], base_dir: str) -> Tuple[GeometryConfig, VTKFilesConfig]:
-    """Parse legacy flat vtk_files dictionary into unified GeometryConfig."""
-    bg_f = _resolve_path(base_dir, vtk_data.get('spis_background_potential_file', 'inputs/spis_V_bg.vtk'))
-    sc_f = _resolve_path(base_dir, vtk_data.get('spacecraft_weighting_file', 'inputs/spis_Vw_body.vtk'))
-    ant_fs = [_resolve_path(base_dir, item) for item in vtk_data.get('antenna_weighting_files', [])]
-    vtk_cfg = VTKFilesConfig(
-        spis_background_potential_file=bg_f,
-        spacecraft_weighting_file=sc_f,
-        antenna_weighting_files=ant_fs
-    )
-    geom_cfg = GeometryConfig(
-        source='spis',
-        spis=SpisGeometryConfig(
-            background_potential_file=bg_f,
-            spacecraft_weighting_file=sc_f,
-            antenna_weighting_files=ant_fs
-        )
-    )
-    return geom_cfg, vtk_cfg
-
-
-def _parse_geometry_and_vtk(cfg: Dict[str, Any], base_dir: str, p_kwargs: Dict[str, Any]) -> Tuple[GeometryConfig, VTKFilesConfig]:
-    """Resolve geometry configuration from top-level or nested config blocks."""
-    geom_data = cfg.get('geometry', p_kwargs.get('geometry', None))
-    if geom_data and isinstance(geom_data, dict):
-        source = str(geom_data.get('source', 'spis')).lower()
-        if source == 'analytical':
-            return _parse_analytical_geometry(geom_data.get('analytical', {}), p_kwargs)
-        return _parse_spis_geometry(geom_data, base_dir, p_kwargs)
-
-    if (
-        ('vtk_files' in cfg and isinstance(cfg['vtk_files'], dict)) or
-        ('vtk_files' in p_kwargs and isinstance(p_kwargs['vtk_files'], dict))
-    ):
-        vtk_data = cfg.get('vtk_files', p_kwargs.get('vtk_files', {}))
-        return _parse_legacy_vtk_geometry(vtk_data, base_dir)
-
-    default_vtk = VTKFilesConfig()
-    return _parse_legacy_vtk_geometry({
-        'spis_background_potential_file': default_vtk.spis_background_potential_file,
-        'spacecraft_weighting_file': default_vtk.spacecraft_weighting_file,
-        'antenna_weighting_files': default_vtk.antenna_weighting_files,
-    }, base_dir)
 
 
 def _resolve_output_paths(plot_config: PlottingConfig3D, base_dir: str, output_dir: Optional[str]) -> None:
@@ -401,16 +196,11 @@ def _resolve_output_paths(plot_config: PlottingConfig3D, base_dir: str, output_d
             plot_config.vtk_output_dir = os.path.join(base_dir, plot_config.vtk_output_dir)
 
 
-def setup_simulation_parameters_3d(
-    Vf: float,
-    Vf_antenne: float = 0.0,
-    config_file: str = "config.json",
-    output_dir: Optional[str] = None
-) -> Tuple[SimulationParams3D, SimulationToggles3D, PlottingConfig3D]:
+def load_and_validate_config(config_file: str) -> Tuple[SimulationConfigSchema, str]:
     """
-    Loads and resolves configuration for 3D PIC simulation.
-    Handles legacy and modern config JSON structures, normalizes vector parameters,
-    and returns initialized SimulationParams3D, SimulationToggles3D, and PlottingConfig3D.
+    Reads and validates a JSON simulation configuration using Pydantic v2.
+    Raises ValueError with formatted diagnostic output if validation fails.
+    Returns (validated_schema, base_dir).
     """
     if not os.path.exists(config_file) and os.path.exists("inputs/config.json"):
         config_file = "inputs/config.json"
@@ -422,47 +212,99 @@ def setup_simulation_parameters_3d(
     base_dir = os.path.dirname(config_abs_path)
 
     with open(config_file, 'r', encoding='utf-8') as f:
-        cfg = json.load(f)
+        raw_cfg = json.load(f)
+
+    try:
+        validated_cfg = SimulationConfigSchema.model_validate(raw_cfg)
+    except ValidationError as err:
+        err_msg = format_validation_error(err)
+        print(f"\n{err_msg}\n")
+        raise ValueError(err_msg) from err
+
+    return validated_cfg, base_dir
+
+
+def setup_simulation_parameters_3d(
+    Vf: float,
+    Vf_antenne: float = 0.0,
+    config_file: str = "config.json",
+    output_dir: Optional[str] = None
+) -> Tuple[SimulationParams3D, SimulationToggles3D, PlottingConfig3D]:
+    """
+    Loads and validates configuration for 3D PIC simulation using declarative Pydantic schemas.
+    Builds typed SimulationParams3D, SimulationToggles3D, and PlottingConfig3D.
+    """
+    cfg, base_dir = load_and_validate_config(config_file)
 
     # 1. Toggles
-    toggle_kwargs = cfg.get('toggles', {})
-    valid_toggle_keys = {f.name for f in fields(SimulationToggles3D)}
-    filtered_toggles = {k: v for k, v in toggle_kwargs.items() if k in valid_toggle_keys}
-    toggles = SimulationToggles3D(**filtered_toggles)
+    toggles = SimulationToggles3D(**cfg.toggles.model_dump())
 
-    # 2. Extract params dictionary from physics and numeric sections
-    p_kwargs = {}
-    if 'physics' in cfg and isinstance(cfg['physics'], dict):
-        p_kwargs.update(cfg['physics'])
-    if 'numeric' in cfg and isinstance(cfg['numeric'], dict):
-        p_kwargs.update(cfg['numeric'])
+    # 2. Geometry and VTK configuration
+    if cfg.geometry.source == "analytical":
+        geom_cfg, vtk_cfg = _build_analytical_geometry(cfg.geometry.analytical)
+    else:
+        geom_cfg, vtk_cfg = _build_spis_geometry(cfg.geometry.spis, base_dir)
 
-    # 3. Normalization of steps, grid, domain, and impact
-    _normalize_grid_and_domain(p_kwargs)
-    _parse_impact_config(cfg, p_kwargs)
+    # 3. Impact configuration
+    imp_s = cfg.physics.impact
+    impact_obj = ImpactConfig(
+        location=list(imp_s.location),
+        direction=list(imp_s.direction),
+        time_delay_s=float(imp_s.time_delay_s),
+        normal=list(imp_s.normal) if imp_s.normal is not None else None
+    )
 
-    # 4. Geometry and VTK configuration
-    geom_cfg, vtk_cfg = _parse_geometry_and_vtk(cfg, base_dir, p_kwargs)
-    p_kwargs['geometry'] = geom_cfg
-    p_kwargs['vtk_files'] = vtk_cfg
+    # 4. Physics configuration
+    phy_s = cfg.physics
+    sc_volt = float(phy_s.spacecraft_voltage_V) if phy_s.spacecraft_voltage_V is not None else None
+    if sc_volt is None:
+        sc_volt = (
+            geom_cfg.analytical.spacecraft.voltage_V
+            if geom_cfg.source == "analytical"
+            else geom_cfg.spis.spacecraft.voltage_V
+        )
 
-    # 5. Build SimulationParams3D
-    valid_param_keys = {f.name for f in fields(SimulationParams3D) if f.init}
-    filtered_params = {k: v for k, v in p_kwargs.items() if k in valid_param_keys}
-    filtered_params['Vf'] = Vf
+    physics_cfg = PhysicsConfig(
+        ion_mass_amu=float(phy_s.ion_mass_amu),
+        impact_cloud_temperature_eV=float(phy_s.impact_cloud_temperature_eV),
+        solar_wind_electron_temp_eV=float(phy_s.solar_wind_electron_temp_eV),
+        solar_wind_density_m3=float(phy_s.solar_wind_density_m3),
+        total_impact_charge_C=float(phy_s.total_impact_charge_C),
+        plasma_injection_mode=phy_s.plasma_injection_mode,
+        impact=impact_obj,
+        spacecraft_voltage_V=sc_volt,
+        antenna_capacitance_F=[float(c) for c in phy_s.antenna_capacitance_F] if phy_s.antenna_capacitance_F else None,
+        antenna_resistance_Ohm=[float(r) for r in phy_s.antenna_resistance_Ohm] if phy_s.antenna_resistance_Ohm else None,
+        antenna_bias_voltage_V=[float(v) for v in phy_s.antenna_bias_voltage_V] if phy_s.antenna_bias_voltage_V else None,
+    )
 
-    physics_kwargs = {k: v for k, v in p_kwargs.items() if k in {f.name for f in fields(PhysicsConfig)}}
-    numeric_kwargs = {k: v for k, v in p_kwargs.items() if k in {f.name for f in fields(NumericConfig)}}
-    filtered_params['physics'] = PhysicsConfig(**physics_kwargs)
-    filtered_params['numeric'] = NumericConfig(**numeric_kwargs)
+    # 5. Numeric configuration
+    num_s = cfg.numeric
+    numeric_cfg = NumericConfig(
+        num_macroparticles=int(num_s.num_macroparticles),
+        time_step_s=float(num_s.time_step_s),
+        num_time_steps=int(num_s.num_time_steps),
+        simulation_duration_s=float(num_s.simulation_duration_s) if num_s.simulation_duration_s is not None else None,
+        domain_half_length_m=[float(d) for d in num_s.domain_half_length_m],
+        grid_nodes=[int(n) for n in num_s.grid_nodes],
+    )
 
-    params = SimulationParams3D(**filtered_params)
+    # 6. SimulationParams3D aggregation
+    params = SimulationParams3D(
+        Vf=Vf,
+        Vf_antenne=Vf_antenne,
+        geometry=geom_cfg,
+        vtk_files=vtk_cfg,
+        physics=physics_cfg,
+        numeric=numeric_cfg,
+        domain_half_length_m=list(numeric_cfg.domain_half_length_m),
+        grid_nodes=list(numeric_cfg.grid_nodes),
+        impact=impact_obj,
+        weighting_threshold=geom_cfg.spis.weighting_threshold if geom_cfg.source == "spis" else 0.85
+    )
 
-    # 6. Plotting configuration and path resolution
-    plot_kwargs = cfg.get('plotting', {})
-    valid_plot_keys = {f.name for f in fields(PlottingConfig3D)}
-    filtered_plot = {k: v for k, v in plot_kwargs.items() if k in valid_plot_keys}
-    plot_config = PlottingConfig3D(**filtered_plot)
+    # 7. Plotting configuration and path resolution
+    plot_config = PlottingConfig3D(**cfg.plotting.model_dump())
     _resolve_output_paths(plot_config, base_dir, output_dir)
 
     return params, toggles, plot_config
