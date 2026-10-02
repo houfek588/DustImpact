@@ -18,7 +18,7 @@ if "--no-visualize" in sys.argv or "--plot-only" in sys.argv or (
     import matplotlib
     matplotlib.use("Agg")
 
-from dust_impact.sim3d.runner import run_3d_simulation
+from dust_impact.solver.runner import run_3d_simulation
 
 
 def main(

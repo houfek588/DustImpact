@@ -1,9 +1,5 @@
 # -*- coding: utf-8 -*-
-"""
-VTK Data loader and SPIS mesh interpolator for 3D PIC simulation.
-Backward compatibility bridge delegating to the dust_impact.geometry package.
-"""
-
+"""Backward compatibility re-export module."""
 from dust_impact.geometry import (
     PreparedGeometry3D,
     build_simulation_geometry,

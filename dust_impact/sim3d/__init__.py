@@ -1,39 +1,8 @@
+# -*- coding: utf-8 -*-
 """
-3D PIC Simulation module for dust impact on spacecraft.
+Backward compatibility bridge package for dust_impact.sim3d.
+Delegates everything to dust_impact.solver and dust_impact.geometry.
 """
 
-from dust_impact.sim3d.config_loader import (
-    SimulationParams3D,
-    SimulationToggles3D,
-    PlottingConfig3D,
-    VTKFilesConfig,
-    setup_simulation_parameters_3d,
-)
-from dust_impact.sim3d.sim_core import (
-    DustImpactSimulation3D,
-    ParticleEnsemble,
-    FieldSolver3D,
-    AntennaCircuitCollector,
-)
-from dust_impact.sim3d.vtk_reader import load_and_interpolate_vtk
-from dust_impact.sim3d.runner import run_3d_simulation
-
-__all__ = [
-    "SimulationParams3D",
-    "SimulationToggles3D",
-    "PlottingConfig3D",
-    "VTKFilesConfig",
-    "setup_simulation_parameters_3d",
-    "DustImpactSimulation3D",
-    "ParticleEnsemble",
-    "FieldSolver3D",
-    "AntennaCircuitCollector",
-    "load_and_interpolate_vtk",
-    "run_3d_simulation",
-]
-
-try:
-    from dust_impact.sim3d.plotting import plot_simulation_results_3d
-    __all__.append("plot_simulation_results_3d")
-except Exception:
-    pass
+from dust_impact.solver import *
+from dust_impact.geometry import build_simulation_geometry as load_and_interpolate_vtk
