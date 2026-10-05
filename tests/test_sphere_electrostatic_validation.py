@@ -13,8 +13,8 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-from dust_impact.sim3d.config_loader import SimulationParams3D, SimulationToggles3D, VTKFilesConfig
-from dust_impact.sim3d.vtk_reader import load_and_interpolate_vtk
+from dust_impact.solver.config_loader import SimulationParams3D, SimulationToggles3D, VTKFilesConfig
+from dust_impact.solver import load_and_interpolate_vtk
 
 
 class TestSphereElectrostaticValidation(unittest.TestCase):

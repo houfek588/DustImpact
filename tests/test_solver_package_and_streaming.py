@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-Unit tests for dust_impact.solver package reorganization,
-sim3d backward compatibility, and streaming I/O memory capping.
+Unit tests for dust_impact.solver package exports
+and streaming I/O memory capping.
 """
 
 import os
@@ -17,14 +17,6 @@ from dust_impact.solver.runner import run_3d_simulation
 from dust_impact.geometry import build_simulation_geometry
 from dust_impact.common.io import HDF5SimulationWriter, load_results_h5, HAS_H5PY
 
-# Backward compatibility sim3d package
-import dust_impact.sim3d as sim3d
-import dust_impact.sim3d.config_loader as sim3d_config_loader
-import dust_impact.sim3d.sim_core as sim3d_core
-import dust_impact.sim3d.runner as sim3d_runner
-import dust_impact.sim3d.vtk_reader as sim3d_vtk
-import dust_impact.sim3d.voxelizer as sim3d_vox
-
 
 class TestSolverPackageAndStreaming(unittest.TestCase):
 
@@ -38,21 +30,6 @@ class TestSolverPackageAndStreaming(unittest.TestCase):
         self.assertTrue(hasattr(solver, "load_and_validate_config"))
         self.assertTrue(hasattr(solver, "run_3d_simulation"))
         self.assertTrue(hasattr(solver, "load_and_interpolate_vtk"))
-
-    def test_sim3d_backward_compatibility(self):
-        """Verifies 100% backward compatibility of dust_impact.sim3d imports."""
-        # Top-level sim3d delegates to solver
-        self.assertIs(sim3d.DustImpactSimulation3D, solver.DustImpactSimulation3D)
-        self.assertIs(sim3d.setup_simulation_parameters_3d, solver.setup_simulation_parameters_3d)
-        self.assertIs(sim3d.run_3d_simulation, solver.run_3d_simulation)
-        self.assertIs(sim3d.load_and_interpolate_vtk, solver.load_and_interpolate_vtk)
-
-        # Submodule re-exports
-        self.assertIs(sim3d_config_loader.setup_simulation_parameters_3d, solver.setup_simulation_parameters_3d)
-        self.assertIs(sim3d_core.DustImpactSimulation3D, solver.DustImpactSimulation3D)
-        self.assertIs(sim3d_runner.run_3d_simulation, solver.run_3d_simulation)
-        self.assertTrue(hasattr(sim3d_vtk, "load_and_interpolate_vtk"))
-        self.assertTrue(hasattr(sim3d_vox, "detect_metal_mask_3d"))
 
     @unittest.skipUnless(HAS_H5PY, "h5py is required for streaming tests")
     def test_streaming_memory_capping(self):

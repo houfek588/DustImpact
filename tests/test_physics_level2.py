@@ -4,9 +4,9 @@ import numpy as np
 from dust_impact.physics.constants import e, amu, eps_0
 from dust_impact.common.io import ensure_dir
 from dust_impact.physics.charging import calculate_equilibrium_potential, ENV_EARTH, MAT_ALUMINIUM
-from dust_impact.sim3d.config_loader import SimulationParams3D, SimulationToggles3D, VTKFilesConfig
-from dust_impact.sim3d.sim_core import DustImpactSimulation3D
-from dust_impact.sim3d.vtk_reader import load_and_interpolate_vtk
+from dust_impact.solver.config_loader import SimulationParams3D, SimulationToggles3D, VTKFilesConfig
+from dust_impact.solver.sim_core import DustImpactSimulation3D
+from dust_impact.solver import load_and_interpolate_vtk
 
 
 class TestPhysicsLevel2(unittest.TestCase):

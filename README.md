@@ -180,7 +180,7 @@ dust_impact/
 │   ├── io.py         # Ukládání a načítání HDF5 (.h5), NPZ s JSON metadaty a rotující checkpointy
 │   ├── vtk_export.py # Export časových řad polí a částic pro ParaView (.vti, .vtp, .pvd)
 │   └── circuits.py   # Integrování RC odezvy anténního předzesilovače
-└── sim3d/            # Řídicí vrstva 3D PIC simulace
+└── solver/           # Řídicí vrstva 3D PIC simulace
     ├── ensemble.py   # Správa částicového ansámblu (ParticleEnsemble), injekce a CCD kolize
     ├── field_solver.py # Řešič Poissonovy rovnice a elektrostatických polí (FieldSolver3D)
     ├── collector.py  # Sběr náboje a integrace anténních RC obvodů (AntennaCircuitCollector)

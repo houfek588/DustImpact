@@ -1,7 +1,7 @@
 import unittest
-from dust_impact.sim3d.config_loader import SimulationParams3D, SimulationToggles3D, setup_simulation_parameters_3d
-from dust_impact.sim3d.vtk_reader import load_and_interpolate_vtk
-from dust_impact.sim3d.sim_core import DustImpactSimulation3D
+from dust_impact.solver.config_loader import SimulationParams3D, SimulationToggles3D, setup_simulation_parameters_3d
+from dust_impact.solver import load_and_interpolate_vtk
+from dust_impact.solver.sim_core import DustImpactSimulation3D
 
 
 class TestSim3D(unittest.TestCase):
@@ -55,7 +55,7 @@ class TestSim3D(unittest.TestCase):
         self.assertGreater(sim.x_e.max() - sim.x_e.min(), 0.1)
 
     def test_sim_core_3d_custom_spacecraft_voltage(self):
-        from dust_impact.sim3d.config_loader import VTKFilesConfig
+        from dust_impact.solver.config_loader import VTKFilesConfig
         params = SimulationParams3D(
             Vf=0.0,
             spacecraft_voltage_V=15.0,

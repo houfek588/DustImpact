@@ -5,8 +5,8 @@ from dust_impact.physics.constants import e, m_e, eps_0
 from dust_impact.common.circuits import integrate_rc_circuit
 from dust_impact.common.io import ensure_dir
 from dust_impact.physics.charging import calculate_equilibrium_potential, ENV_EARTH, MAT_ALUMINIUM
-from dust_impact.sim3d.config_loader import SimulationParams3D, SimulationToggles3D
-from dust_impact.sim3d.sim_core import DustImpactSimulation3D
+from dust_impact.solver.config_loader import SimulationParams3D, SimulationToggles3D
+from dust_impact.solver.sim_core import DustImpactSimulation3D
 
 
 def _calc_gaussian_Ew_3d(x: np.ndarray, y: np.ndarray, z: np.ndarray, w_width: float = 0.2):

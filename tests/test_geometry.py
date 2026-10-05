@@ -12,7 +12,7 @@ import os
 import unittest
 import numpy as np
 
-from dust_impact.sim3d.config_loader import SimulationParams3D, SimulationToggles3D, VTKFilesConfig
+from dust_impact.solver.config_loader import SimulationParams3D, SimulationToggles3D, VTKFilesConfig
 from dust_impact.geometry import (
     PreparedGeometry3D,
     build_simulation_geometry,
@@ -28,7 +28,7 @@ from dust_impact.geometry import (
     AnalyticalBox,
     generate_synthetic_analytical_fields
 )
-from dust_impact.sim3d.sim_core import DustImpactSimulation3D
+from dust_impact.solver.sim_core import DustImpactSimulation3D
 
 
 class TestGeometryVoxelizer(unittest.TestCase):
@@ -244,7 +244,7 @@ class TestPreparedGeometryAndIntegration(unittest.TestCase):
             intersect_ray_cylinder,
             intersect_ray_analytical_spacecraft
         )
-        from dust_impact.sim3d.config_loader import AnalyticalSpacecraftPart
+        from dust_impact.solver.config_loader import AnalyticalSpacecraftPart
 
         # 1. Sphere hit
         p_start = np.array([-3.0, 0.0, 0.0])
@@ -308,7 +308,7 @@ class TestPreparedGeometryAndIntegration(unittest.TestCase):
         self.assertGreater(V[center_idx + 2, center_idx, center_idx], 0.0)
 
     def test_build_analytical_simulation_geometry_sphere_and_box(self):
-        from dust_impact.sim3d.config_loader import (
+        from dust_impact.solver.config_loader import (
             GeometryConfig, AnalyticalGeometryConfig, AnalyticalSpacecraftPart, AnalyticalAntennaGeometry
         )
         params = SimulationParams3D(
@@ -343,7 +343,7 @@ class TestPreparedGeometryAndIntegration(unittest.TestCase):
         self.assertAlmostEqual(np.max(prep.Vw_grids[0]), 1.0, places=4)
 
     def test_config_loader_analytical_geometry(self):
-        from dust_impact.sim3d.config_loader import setup_simulation_parameters_3d
+        from dust_impact.solver.config_loader import setup_simulation_parameters_3d
         params, toggles, plot_cfg = setup_simulation_parameters_3d(
             Vf=10.0,
             config_file="inputs/config_analytical_sphere.json"
@@ -363,7 +363,7 @@ class TestPreparedGeometryAndIntegration(unittest.TestCase):
         self.assertEqual(params.antenna_resistance_Ohm, [100000.0, 100000.0, 100000.0, 100000.0])
 
     def test_config_loader_spis_unified_geometry(self):
-        from dust_impact.sim3d.config_loader import setup_simulation_parameters_3d
+        from dust_impact.solver.config_loader import setup_simulation_parameters_3d
         params, toggles, plot_cfg = setup_simulation_parameters_3d(
             Vf=25.0,
             config_file="config.json"
@@ -379,7 +379,7 @@ class TestPreparedGeometryAndIntegration(unittest.TestCase):
         self.assertEqual(params.weighting_threshold, 0.85)
 
     def test_analytical_antenna_voltage_specification(self):
-        from dust_impact.sim3d.config_loader import (
+        from dust_impact.solver.config_loader import (
             GeometryConfig, AnalyticalGeometryConfig, AnalyticalSpacecraftPart, AnalyticalAntennaGeometry
         )
         params = SimulationParams3D(
@@ -423,7 +423,7 @@ class TestPreparedGeometryAndIntegration(unittest.TestCase):
         self.assertAlmostEqual(prep.V_bg[center_idx, idx_y_ant2, center_idx], -4.0, places=3)
 
     def test_analytical_antenna_voltage_omitted_defaults_to_zero(self):
-        from dust_impact.sim3d.config_loader import (
+        from dust_impact.solver.config_loader import (
             GeometryConfig, AnalyticalGeometryConfig, AnalyticalSpacecraftPart, AnalyticalAntennaGeometry
         )
         ant = AnalyticalAntennaGeometry(p_start=[0, 1.0, 0], p_end=[0, 2.5, 0], radius=0.05)
@@ -456,7 +456,7 @@ class TestPreparedGeometryAndIntegration(unittest.TestCase):
         self.assertAlmostEqual(prep.V_bg[center_idx, idx_y_ant, center_idx], 0.0, places=3)
 
     def test_physics_and_numeric_config_separation(self):
-        from dust_impact.sim3d.config_loader import (
+        from dust_impact.solver.config_loader import (
             setup_simulation_parameters_3d, PhysicsConfig, NumericConfig
         )
         params, toggles, plot_cfg = setup_simulation_parameters_3d(
@@ -519,7 +519,7 @@ class TestPreparedGeometryAndIntegration(unittest.TestCase):
         self.assertAlmostEqual(p_custom.simulation_duration_s, 500 * 2e-9)
 
     def test_impact_config_structure(self):
-        from dust_impact.sim3d.config_loader import (
+        from dust_impact.solver.config_loader import (
             setup_simulation_parameters_3d, PhysicsConfig, ImpactConfig
         )
         # Test loading from config.json with unified "impact" object

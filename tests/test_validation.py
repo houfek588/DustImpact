@@ -13,8 +13,8 @@ import unittest
 
 from pydantic import ValidationError
 
-from dust_impact.sim3d.schema import SimulationConfigSchema, format_validation_error
-from dust_impact.sim3d.config_loader import load_and_validate_config, setup_simulation_parameters_3d
+from dust_impact.solver.schema import SimulationConfigSchema, format_validation_error
+from dust_impact.solver.config_loader import load_and_validate_config, setup_simulation_parameters_3d
 
 
 class TestConfigValidation(unittest.TestCase):

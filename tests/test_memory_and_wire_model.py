@@ -7,11 +7,11 @@ and sub-grid thin-wire continuous collision detection.
 import unittest
 import numpy as np
 
-from dust_impact.sim3d.config_loader import setup_simulation_parameters_3d
+from dust_impact.solver.config_loader import setup_simulation_parameters_3d
 from dust_impact.geometry.prepared import build_simulation_geometry
 from dust_impact.geometry.analytical import build_analytical_simulation_geometry
 from dust_impact.geometry.surface import check_wire_collision_3d
-from dust_impact.sim3d.sim_core import DustImpactSimulation3D
+from dust_impact.solver.sim_core import DustImpactSimulation3D
 
 
 class TestMemoryAndWireModel(unittest.TestCase):

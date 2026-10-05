@@ -2,7 +2,7 @@
 import os
 import tempfile
 import unittest
-from dust_impact.sim3d.config_loader import setup_simulation_parameters_3d
+from dust_impact.solver.config_loader import setup_simulation_parameters_3d
 from dust_impact.main import main
 
 
