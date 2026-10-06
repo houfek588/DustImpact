@@ -478,37 +478,54 @@ class SimulationParams3D(BaseSimulationParams):
                 self.vtk_files.spis_background_potential_file = self.geometry.spis.background_potential_file
                 self.vtk_files.antenna_weighting_files = self.geometry.spis.antenna_weighting_files
 
-            if not self.antenna_bias_voltage_V:
-                self.antenna_bias_voltage_V = [0.0] * len(self.antenna_capacitance_F)
+            spis_obj = getattr(self.geometry, 'spis', None)
+            spis_ants = getattr(spis_obj, 'antennas', None)
+            if spis_ants is not None:
+                num_ant = len(spis_ants)
+            else:
+                num_ant = len(getattr(self.geometry.spis, 'antenna_weighting_files', getattr(self.vtk_files, 'antenna_weighting_files', [])))
+
+            if num_ant == 0:
+                self.antenna_capacitance_F = []
+                self.antenna_resistance_Ohm = []
+                self.antenna_bias_voltage_V = []
+                self.antenna_collection_efficiency = []
+            else:
+                if len(self.antenna_capacitance_F) != num_ant:
+                    self.antenna_capacitance_F = [2e-12] * num_ant
+                if len(self.antenna_resistance_Ohm) != num_ant:
+                    self.antenna_resistance_Ohm = [100e3] * num_ant
+                if not self.antenna_bias_voltage_V or len(self.antenna_bias_voltage_V) != num_ant:
+                    self.antenna_bias_voltage_V = [0.0] * num_ant
+
         elif source == 'analytical':
-            ant_geoms = getattr(getattr(self.geometry, 'analytical', None), 'antennas', [])
-            if ant_geoms:
-                self.antenna_bias_voltage_V = [
-                    float(getattr(a, 'effective_voltage', 0.0))
-                    for a in ant_geoms
-                ]
-            elif not self.antenna_bias_voltage_V:
-                self.antenna_bias_voltage_V = [0.0] * len(self.antenna_capacitance_F)
+            ant_geoms = getattr(getattr(self.geometry, 'analytical', None), 'antennas', None)
+            if ant_geoms is not None:
+                num_ant = len(ant_geoms)
+                if num_ant == 0:
+                    self.antenna_capacitance_F = []
+                    self.antenna_resistance_Ohm = []
+                    self.antenna_bias_voltage_V = []
+                    self.antenna_collection_efficiency = []
+                else:
+                    self.antenna_capacitance_F = [
+                        float(a.capacitance_F) if getattr(a, 'capacitance_F', None) is not None else 2e-12
+                        for a in ant_geoms
+                    ]
+                    self.antenna_resistance_Ohm = [
+                        float(a.resistance_Ohm) if getattr(a, 'resistance_Ohm', None) is not None else 100e3
+                        for a in ant_geoms
+                    ]
+                    self.antenna_bias_voltage_V = [
+                        float(getattr(a, 'effective_voltage', 0.0) or 0.0)
+                        for a in ant_geoms
+                    ]
 
         # Spacecraft voltage sync
         geom_obj = getattr(self.geometry, source, None)
         sc = getattr(geom_obj, 'spacecraft', None)
         if sc and getattr(sc, 'effective_voltage', None) is not None:
             self.spacecraft_voltage_V = sc.effective_voltage
-
-        # Antenna circuit params sync
-        ant_geoms_list = getattr(geom_obj, 'antennas', [])
-        if ant_geoms_list:
-            if any(getattr(a, 'capacitance_F', None) is not None for a in ant_geoms_list):
-                self.antenna_capacitance_F = [
-                    float(a.capacitance_F) if getattr(a, 'capacitance_F', None) is not None else 2e-12
-                    for a in ant_geoms_list
-                ]
-            if any(getattr(a, 'resistance_Ohm', None) is not None for a in ant_geoms_list):
-                self.antenna_resistance_Ohm = [
-                    float(a.resistance_Ohm) if getattr(a, 'resistance_Ohm', None) is not None else 100e3
-                    for a in ant_geoms_list
-                ]
 
         # Weighting threshold sync
         if source == 'spis':

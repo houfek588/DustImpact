@@ -36,6 +36,8 @@ def _safe_set_window_title(fig, title: str) -> None:
 
 def _plot_currents_and_voltage(results: Dict, params: SimulationParams3D, plot_cfg: PlottingConfig3D):
     if not plot_cfg.show_currents: return
+    if len(params.C_ant) == 0:
+        return
     fig1, (ax1a, ax1b) = plt.subplots(2, 1, figsize=(10, 8))
     _safe_set_window_title(fig1, '3D Signals: Currents and Voltages')
     colors = ['blue', 'red', 'green', 'orange', 'purple']
@@ -295,11 +297,13 @@ def _export_csv(results: Dict, params: SimulationParams3D, plot_cfg: PlottingCon
 def _plot_static_vtk_fields(params: SimulationParams3D, V_bg: np.ndarray, Vw_grids: list):
     num_ant = len(Vw_grids)
     n_plots = 1 + num_ant
-    cols = 2
-    rows = (n_plots + 1) // 2
+    cols = 2 if n_plots > 1 else 1
+    rows = (n_plots + cols - 1) // cols
 
-    fig, axes = plt.subplots(rows, cols, figsize=(12, 5 * rows))
+    fig, axes = plt.subplots(rows, cols, figsize=(6 * cols if cols > 1 else 7, 5 * rows))
     _safe_set_window_title(fig, 'Static Input Fields (VTK/Synthetic)')
+    if not isinstance(axes, np.ndarray):
+        axes = np.array([axes])
     axes = axes.flatten()
 
     mid_x = params.Nx // 2

@@ -41,7 +41,11 @@ def run_3d_simulation(
         print(f"Potenciál trupu sondy: {sim_params.spacecraft_voltage_V:.3f} V")
     else:
         print(f"Plovoucí potenciál sondy: {V_equilibrium:.3f} V")
-    print(f"Výchozí plovoucí potenciál antény: {V_equilibrium_antenne:.3f} V")
+
+    if len(sim_params.C_ant) > 0:
+        print(f"Výchozí plovoucí potenciál antény: {V_equilibrium_antenne:.3f} V")
+    else:
+        print("Počet nakonfigurovaných antén: 0 (výpočet probíhá pouze pro těleso sondy)")
 
     if visualize_results is not None:
         plot_config.show_interactive_gui_windows = visualize_results

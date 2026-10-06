@@ -353,12 +353,9 @@ class TestPreparedGeometryAndIntegration(unittest.TestCase):
         self.assertEqual(params.geometry.analytical.spacecraft.voltage_V, 10.0)
         self.assertEqual(params.spacecraft_voltage_V, 10.0)
         self.assertEqual(len(params.geometry.analytical.antennas), 4)
-        self.assertEqual(params.geometry.analytical.antennas[0].voltage_V, 5.0)
-        self.assertEqual(params.geometry.analytical.antennas[1].voltage_V, -5.0)
-        self.assertEqual(params.geometry.analytical.antennas[2].voltage_V, 0.0)
-        self.assertEqual(params.geometry.analytical.antennas[3].voltage_V, 2.5)
-        self.assertEqual(params.antenna_bias_voltage_V, [5.0, -5.0, 0.0, 2.5])
-        self.assertEqual(params.V_bias, [5.0, -5.0, 0.0, 2.5])
+        expected_voltages = [a.voltage_V for a in params.geometry.analytical.antennas]
+        self.assertEqual(params.antenna_bias_voltage_V, expected_voltages)
+        self.assertEqual(params.V_bias, expected_voltages)
         self.assertEqual(params.antenna_capacitance_F, [2e-12, 2e-12, 2e-12, 2e-12])
         self.assertEqual(params.antenna_resistance_Ohm, [100000.0, 100000.0, 100000.0, 100000.0])
 

@@ -1,0 +1,58 @@
+{
+    "$schema": "../schema/config.schema.json",
+    "geometry": {
+        "source": "analytical",
+        "analytical": {
+            "spacecraft": {
+                "type": "sphere",
+                "center": [0.0, 0.0, 0.0],
+                "radius": 1.0,
+                "voltage_V": 10.0
+            },
+            "antennas": [
+
+            ]
+        }
+    },
+    "toggles": {
+        "enable_spis_background_field": true,
+        "enable_plasma_self_field": true,
+        "enable_antenna_particle_collection": true,
+        "enable_rc_circuit_response": true,
+        "enable_antenna_bias_voltage": true
+    },
+    "physics": {
+        "ion_mass_amu": 27.0,
+        "impact_cloud_temperature_eV": 2.0,
+        "solar_wind_electron_temp_eV": 15.0,
+        "solar_wind_density_m3": 10000000.0,
+        "total_impact_charge_C": 5e-11,
+        "plasma_injection_mode": "homogeneous",
+        "impact": {
+            "location": [-3.0, 3.0, 0.0],
+            "direction": [1.0, -1.0, 0.0],
+            "time_delay_s": 1e-08
+        }
+    },
+    "numeric": {
+        "num_macroparticles": 5000,
+        "time_step_s": 2e-09,
+        "num_time_steps": 100,
+        "domain_half_length_m": [5.0, 5.0, 5.0],
+        "grid_nodes": [40, 40, 40]
+    },
+    "plotting": {
+        "run_physical_simulation": true,
+        "show_interactive_gui_windows": true,
+        "save_plots_to_disk": true,
+        "export_csv_time_series": false,
+        "output_format": "h5",
+        "output_h5_filepath": "outputs/out_analytical_sphere.h5",
+        "output_npz_filepath": "outputs/out_analytical_sphere.npz",
+        "output_csv_filepath": "outputs/out_analytical_sphere.csv",
+        "enable_checkpointing": false,
+        "checkpoint_interval_steps": 500,
+        "export_vtk": false,
+        "vtk_output_dir": "outputs/paraview_vtk"
+    }
+}
