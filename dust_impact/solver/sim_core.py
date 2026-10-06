@@ -303,6 +303,13 @@ class DustImpactSimulation3D:
             'ion_mass_amu': float(self.p.ion_mass_amu),
             'solar_wind_electron_temp_eV': float(self.p.solar_wind_electron_temp_eV),
             'solar_wind_density_m3': float(self.p.solar_wind_density_m3),
+            'debye_length': float(self.p.debye_length),
+            'omega_pe': float(self.p.omega_pe),
+            'f_pe': float(self.p.f_pe),
+            'omega_pi': float(self.p.omega_pi),
+            'f_pi': float(self.p.f_pi),
+            'v_th_e': float(self.p.v_th_e),
+            'v_th_i': float(self.p.v_th_i),
             'plasma_injection_mode': getattr(self.p, 'plasma_injection_mode', 'point_cloud')
         }
 

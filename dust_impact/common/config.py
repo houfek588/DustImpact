@@ -45,6 +45,12 @@ class BaseSimulationParams:
     # Derived internal parameters
     m_i: float = field(init=False)
     debye_length: float = field(init=False)
+    omega_pe: float = field(init=False)
+    f_pe: float = field(init=False)
+    omega_pi: float = field(init=False)
+    f_pi: float = field(init=False)
+    v_th_e: float = field(init=False)
+    v_th_i: float = field(init=False)
     q_macro: float = field(init=False)
     steps: int = field(init=False)
     time_array: np.ndarray = field(init=False)
@@ -58,11 +64,20 @@ class BaseSimulationParams:
     t_max: float = field(init=False)
     t_delay: float = field(init=False)
 
+    def __post_init__(self):
+        self._init_base_derived_params()
+
     def _init_base_derived_params(self):
         if self.spacecraft_voltage_V is None:
             self.spacecraft_voltage_V = float(self.Vf)
         self.m_i = self.ion_mass_amu * amu
-        self.debye_length = np.sqrt((eps_0 * self.solar_wind_electron_temp_eV * e) / (self.solar_wind_density_m3 * e ** 2))
+        self.debye_length = float(np.sqrt((eps_0 * self.solar_wind_electron_temp_eV * e) / (self.solar_wind_density_m3 * e ** 2)))
+        self.omega_pe = float(np.sqrt((self.solar_wind_density_m3 * e ** 2) / (eps_0 * m_e)))
+        self.f_pe = float(self.omega_pe / (2.0 * np.pi))
+        self.omega_pi = float(np.sqrt((self.solar_wind_density_m3 * e ** 2) / (eps_0 * self.m_i)))
+        self.f_pi = float(self.omega_pi / (2.0 * np.pi))
+        self.v_th_e = float(np.sqrt(2.0 * e * self.impact_cloud_temperature_eV / m_e))
+        self.v_th_i = float(np.sqrt(2.0 * e * self.impact_cloud_temperature_eV / self.m_i))
         self.q_macro = self.total_impact_charge_C / self.num_macroparticles
 
         if self.simulation_duration_s is not None and (self.num_time_steps == 10000 or self.num_time_steps is None):

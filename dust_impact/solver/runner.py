@@ -60,10 +60,14 @@ def run_3d_simulation(
     print(f"Zvolený formát ukládání dat: {plot_config.output_format.upper()} ({primary_output_path})")
 
     print(f"Vypočtená Debyeova délka: {sim_params.debye_length:.3f} m")
+    print(f"Elektronová plazmová frekvence: omega_pe = {sim_params.omega_pe:.3e} rad/s (f_pe = {sim_params.f_pe:.3e} Hz)")
+    print(f"Iontová plazmová frekvence: omega_pi = {sim_params.omega_pi:.3e} rad/s (f_pi = {sim_params.f_pi:.3e} Hz)")
+    print(f"Termální rychlost elektronů: v_th,e = {sim_params.v_th_e:.3e} m/s ({sim_params.v_th_e / 1e3:.2f} km/s)")
+    print(f"Termální rychlost iontů: v_th,i = {sim_params.v_th_i:.3e} m/s ({sim_params.v_th_i / 1e3:.2f} km/s)")
     print(f"Fyzická velikost elementu mřížky: dx = {sim_params.dx:.3f} m, dy = {sim_params.dy:.3f} m, dz = {sim_params.dz:.3f} m")
 
     # Kontrola numerické stability: CFL podmínka (1.5 * v_th * dt <= dx)
-    v_th_e = np.sqrt(2.0 * e * sim_params.T_dust_eV / m_e)
+    v_th_e = sim_params.v_th_e
     v_cfl = 1.5 * v_th_e
     dx_min = min(sim_params.dx, sim_params.dy, sim_params.dz)
     is_stable, cfl_ratio, dt_max_rec = check_cfl_condition(sim_params.dt, dx_min, v_cfl)

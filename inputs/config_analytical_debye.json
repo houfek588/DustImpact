@@ -31,7 +31,7 @@
         "impact": {
             "location": [-3.0, 3.0, 0.0],
             "direction": [1.0, -1.0, 0.0],
-            "time_delay_s": 1e-08
+            "time_delay_s": 0.0
         }
     },
     "numeric": {
