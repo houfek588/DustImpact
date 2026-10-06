@@ -390,6 +390,41 @@ def load_results(filepath: str) -> Dict[str, Any]:
     return load_results_npz(filepath)
 
 
+def export_time_series_csv(results: Dict[str, Any], params: Any, filepath: str) -> str:
+    """
+    Export simulated antenna currents and voltages to CSV time series.
+
+    Parameters
+    ----------
+    results : Dict[str, Any]
+        Dictionary with simulation results ('smooth_induced', 'smooth_collected', 'voltage_ant').
+    params : Any
+        Simulation parameters providing time_array and antenna list C_ant.
+    filepath : str
+        Target CSV file path.
+
+    Returns
+    -------
+    str
+        Path to the saved CSV file.
+    """
+    ensure_dir(filepath)
+    header = ["Time_s"]
+    cols = [params.time_array]
+    num_ant = len(getattr(params, 'C_ant', []))
+    for a_idx in range(num_ant):
+        header.extend([f"I_ind_{a_idx + 1}_A", f"I_col_{a_idx + 1}_A", f"V_{a_idx + 1}_V"])
+        cols.extend([
+            results['smooth_induced'][a_idx],
+            results['smooth_collected'][a_idx],
+            results['voltage_ant'][a_idx]
+        ])
+    np.savetxt(filepath, np.column_stack(cols), delimiter=",", header=",".join(header), comments="")
+    print(f"  [OK] CSV uložen: {filepath}")
+    return filepath
+
+
+
 # =====================================================================
 # Helper Functions
 # =====================================================================

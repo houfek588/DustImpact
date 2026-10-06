@@ -11,12 +11,11 @@ import numpy as np
 from dust_impact.physics.constants import e, m_e
 from dust_impact.physics.charging import calculate_equilibrium_potential, ENV_EARTH, MAT_ALUMINIUM, MAT_ALUMINIUM_ANTENNE
 from dust_impact.common.io import save_results, load_results
-from dust_impact.common.vtk_export import export_simulation_to_paraview
 from dust_impact.numerics.pushers import check_cfl_condition
 from dust_impact.solver.config_loader import setup_simulation_parameters_3d
 from dust_impact.geometry import build_simulation_geometry, PreparedGeometry3D
 from dust_impact.solver.sim_core import DustImpactSimulation3D
-from dust_impact.solver.plotting import plot_simulation_results_3d
+from dust_impact.visualization import plot_simulation_results_3d, export_simulation_to_paraview
 
 
 def run_3d_simulation(

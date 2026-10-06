@@ -34,8 +34,7 @@ graph TD
 
     subgraph "I/O a Výstupní vrstva"
         SIM --> H5["HDF5SimulationWriter<br/>(Streaming I/O, O(1) RAM)"]
-        SIM --> VTK["ParaView Export<br/>(.pvd, .vti, .vtp)"]
-        SIM --> PLOT["dust_impact.solver.plotting<br/>(Statické grafy, animované GIF)"]
+        SIM --> VIS["dust_impact.visualization<br/>(signals, fields, particles, distributions, vtk)"]
     end
 ```
 
@@ -51,7 +50,19 @@ graph TD
 | **[`schema.py`](file:///C:/Projects/Phd/SPIS/PostProcessSPIS/dust_impact/solver/schema.py)** | Deklarativní validační modely Pydantic v2 (`SimulationConfigSchema`, `GeometrySchema`, `PhysicsSchema`, `NumericSchema`, `PlottingSchema`). Zajišťuje striktní typování (`extra='forbid'`) a generuje `config.schema.json`. |
 | **[`params.py`](file:///C:/Projects/Phd/SPIS/PostProcessSPIS/dust_impact/solver/params.py)** | Dataclasses s dynamickými `@property` gettery a settery (`SimulationParams3D`). Slouží jako jediný zdroj pravdy (SSOT) pro rozměry domény a mřížkové kroky $dx, dy, dz$. |
 | **[`config_loader.py`](file:///C:/Projects/Phd/SPIS/PostProcessSPIS/dust_impact/solver/config_loader.py)** | Načítání JSON konfigurace, mapování zvalidovaného schématu na runtime objekty, normalizace cest a adaptivní přesměrování výstupních adresářů. |
-| **[`plotting.py`](file:///C:/Projects/Phd/SPIS/PostProcessSPIS/dust_impact/solver/plotting.py)** | Prezentační vrstva: generování signálových grafů (proudy $I(t)$, napětí $V(t)$), prostorových 2D/3D řezů, fázového prostoru a animovaných GIFů. |
+| **[`plotting.py`](file:///C:/Projects/Phd/SPIS/PostProcessSPIS/dust_impact/solver/plotting.py)** | Zpětně kompatibilní proxy fasáda delegující do nového balíčku `dust_impact.visualization`. |
+
+### Přehled balíčku `dust_impact.visualization`:
+
+| Modul | Odpovědnost a klíčové komponenty |
+| :--- | :--- |
+| **[`pipeline.py`](file:///C:/Projects/Phd/SPIS/PostProcessSPIS/dust_impact/visualization/pipeline.py)** | Třída `VisualizationPipeline` a funkce `plot_simulation_results_3d`: orchestrace grafických rendererů, správa životního cyklu animací. |
+| **[`signals.py`](file:///C:/Projects/Phd/SPIS/PostProcessSPIS/dust_impact/visualization/signals.py)** | Funkce `plot_currents_and_voltage`: časové řady proudů (celkových a indukovaných) a napětí na anténách s časovou konstantou $\tau = RC$. |
+| **[`fields.py`](file:///C:/Projects/Phd/SPIS/PostProcessSPIS/dust_impact/visualization/fields.py)** | Funkce `plot_static_vtk_fields` a `animate_fields_slice`: 2D řezy skalárního potenciálu a statických polí se zobrazením obrysu sondy a antén. |
+| **[`particles.py`](file:///C:/Projects/Phd/SPIS/PostProcessSPIS/dust_impact/visualization/particles.py)** | Funkce `animate_particles_2d_slice` a `animate_particles_3d`: 2D/3D zobrazení expanze částic, tělesa sondy, antén a bodu dopadu. |
+| **[`distributions.py`](file:///C:/Projects/Phd/SPIS/PostProcessSPIS/dust_impact/visualization/distributions.py)** | Funkce `animate_velocity_distribution`: animovaný vývoj histogramů velikosti rychlosti $\|v\|$ pro elektrony a ionty. |
+| **[`vtk.py`](file:///C:/Projects/Phd/SPIS/PostProcessSPIS/dust_impact/visualization/vtk.py)** | Funkce `export_simulation_to_paraview`, `export_fields_to_vti`, `export_particles_to_vtp`: generování datasetů pro ParaView. |
+| **[`styles.py`](file:///C:/Projects/Phd/SPIS/PostProcessSPIS/dust_impact/visualization/styles.py)** | Palety barev, bezpečné nastavování názvů oken a uvolňování animací v headless režimu. |
 
 ---
 
@@ -65,7 +76,8 @@ sequenceDiagram
     participant CLI as runner.py
     participant Sim as DustImpactSimulation3D
     participant Disk as HDF5SimulationWriter
-    participant Vis as plotting.py
+    participant Vis as VisualizationPipeline
+
 
     CLI->>Sim: Inicializace s stream_to_disk=True
     loop Každý časový krok (step = 0 .. N)
