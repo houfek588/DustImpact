@@ -305,13 +305,18 @@ class SimulationParams3D(BaseSimulationParams):
         return float(2.0 * self.L_z / (self.Nz - 1)) if self.Nz > 1 else 1.0
 
     @property
-    def impact_pos(self) -> List[float]:
+    def impact_pos(self) -> Optional[List[float]]:
+        if getattr(self, 'plasma_injection_mode', 'point_cloud') == 'homogeneous':
+            return None
         return self.impact.location
 
     @impact_pos.setter
-    def impact_pos(self, val: List[float]) -> None:
-        self.impact.location = list(val)
-        self.impact_location_xyz_m = list(val)
+    def impact_pos(self, val: Optional[List[float]]) -> None:
+        if val is not None:
+            self.impact.location = list(val)
+            self.impact_location_xyz_m = list(val)
+        else:
+            self.impact_location_xyz_m = None
 
     @property
     def t_delay(self) -> float:
@@ -452,13 +457,18 @@ class SimulationParams3D(BaseSimulationParams):
         else:
             self.impact_time_delay_s = float(self.impact.time_delay_s)
 
-        if self.impact_normal is not None:
-            self.impact.normal = list(self.impact_normal)
-        elif self.impact.normal is not None:
-            self.impact_normal = list(self.impact.normal)
+        if getattr(self, 'plasma_injection_mode', 'point_cloud') == 'homogeneous':
+            self.impact_normal = None
+            if hasattr(self, 'impact'):
+                self.impact.normal = None
         else:
-            self.impact_normal = [-0.7071, 0.7071, 0.0]
-            self.impact.normal = list(self.impact_normal)
+            if self.impact_normal is not None:
+                self.impact.normal = list(self.impact_normal)
+            elif self.impact.normal is not None:
+                self.impact_normal = list(self.impact.normal)
+            else:
+                self.impact_normal = [-0.7071, 0.7071, 0.0]
+                self.impact.normal = list(self.impact_normal)
 
         # 4. Base derived params
         self._init_base_derived_params()
@@ -546,10 +556,12 @@ class SimulationParams3D(BaseSimulationParams):
             if hasattr(self, f.name):
                 setattr(self.numeric, f.name, getattr(self, f.name))
         self.physics.impact = self.impact
-        self.physics.impact_location_xyz_m = list(self.impact_location_xyz_m)
-        self.physics.impact_direction_vector = list(self.impact_direction_vector)
+        self.physics.impact_location_xyz_m = list(self.impact_location_xyz_m) if self.impact_location_xyz_m is not None else None
+        self.physics.impact_direction_vector = list(self.impact_direction_vector) if self.impact_direction_vector is not None else None
         self.physics.impact_time_delay_s = float(self.impact_time_delay_s)
         if self.impact_normal is not None:
             self.physics.impact_normal = list(self.impact_normal)
+        else:
+            self.physics.impact_normal = None
         self.numeric.grid_nodes = list(self.grid_nodes)
         self.numeric.domain_half_length_m = list(self.domain_half_length_m)

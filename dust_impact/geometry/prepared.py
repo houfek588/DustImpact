@@ -61,8 +61,8 @@ class PreparedGeometry3D:
     Ewz_list: List[np.ndarray]
     antenna_masks_3d: List[np.ndarray]
     spacecraft_mask_3d: np.ndarray
-    impact_pos: List[float] = field(default_factory=lambda: [-2.0, 2.0, 0.0])
-    impact_normal: List[float] = field(default_factory=lambda: [-0.7071, 0.7071, 0.0])
+    impact_pos: Optional[List[float]] = None
+    impact_normal: Optional[List[float]] = None
     antenna_geometries: Optional[List[Any]] = None
 
     @property
@@ -99,10 +99,13 @@ class PreparedGeometry3D:
         """ Returns human-readable summary of the prepared geometry. """
         sc_cells = int(np.sum(self.spacecraft_mask_3d))
         sc_frac = sc_cells / float(self.spacecraft_mask_3d.size) * 100.0
+        if self.impact_pos is not None:
+            impact_desc = f", Impact pos: {self.impact_pos}, Normal: {self.impact_normal}"
+        else:
+            impact_desc = ", Plasma mode: Homogeneous (no localized impact)"
         return (
             f"PreparedGeometry3D: Grid {self.grid_shape}, Antennas: {self.num_antennas}, "
-            f"Spacecraft cells: {sc_cells} ({sc_frac:.2f}%), "
-            f"Impact pos: {self.impact_pos}, Normal: {self.impact_normal}"
+            f"Spacecraft cells: {sc_cells} ({sc_frac:.2f}%){impact_desc}"
         )
 
 
@@ -305,10 +308,17 @@ def build_simulation_geometry(params: Any) -> PreparedGeometry3D:
         else:
             print(f"  -> Soubor pozadí nezadán a potenciály jsou 0.0 V. Počáteční elektrostatické pozadí je nastaveno na 0.0 V.")
 
-    # 4. Impact intersection and surface normal
-    impact_pt, normal_vec = compute_impact_intersection_and_normal(
-        params, Vw_body, spacecraft_mask_3d, mesh_body
-    )
+    # 4. Impact intersection and surface normal (only for localized dust impact)
+    is_homogeneous = getattr(params, 'plasma_injection_mode', 'point_cloud') == 'homogeneous'
+    if not is_homogeneous:
+        impact_pt, normal_vec = compute_impact_intersection_and_normal(
+            params, Vw_body, spacecraft_mask_3d, mesh_body
+        )
+        impact_pos = list(impact_pt) if impact_pt is not None else None
+        impact_normal = list(normal_vec) if normal_vec is not None else None
+    else:
+        impact_pos = None
+        impact_normal = None
 
     # 5. Background electric field
     if np.any(V_bg_grid != 0.0):
@@ -374,6 +384,6 @@ def build_simulation_geometry(params: Any) -> PreparedGeometry3D:
         Ewz_list=Ewz_list,
         antenna_masks_3d=antenna_masks_3d,
         spacecraft_mask_3d=spacecraft_mask_3d,
-        impact_pos=list(impact_pt),
-        impact_normal=list(normal_vec)
+        impact_pos=impact_pos,
+        impact_normal=impact_normal
     )

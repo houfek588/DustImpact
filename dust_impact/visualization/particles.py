@@ -192,8 +192,9 @@ def animate_particles_3d(
     ax.set_zlabel("Z [m]")
     ax.legend(loc='upper right', framealpha=0.9)
 
-    impact_pos = getattr(params, 'impact_pos', [0.0, 0.0, 0.0])
-    ax.scatter(*impact_pos, color=sp_colors['impact'], s=120, marker='*', edgecolor='black', linewidth=0.5, label='Impact Point')
+    impact_pos = getattr(params, 'impact_pos', None)
+    if impact_pos is not None:
+        ax.scatter(*impact_pos, color=sp_colors['impact'], s=120, marker='*', edgecolor='black', linewidth=0.5, label='Impact Point')
     time_text = ax.text2D(0.02, 0.95, '', transform=ax.transAxes, bbox=dict(facecolor='white', alpha=0.85, edgecolor='gray'))
 
     def update(i):

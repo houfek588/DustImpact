@@ -297,8 +297,8 @@ class DustImpactSimulation3D:
             'antenna_capacitance_F': list(self.p.C_ant),
             'antenna_resistance_Ohm': list(self.p.R_ant),
             'antenna_bias_voltage_V': list(self.p.V_bias),
-            'impact_location_xyz_m': list(getattr(self.p, 'impact_pos', [0.0, 0.0, 0.0])),
-            'impact_normal': list(getattr(self.p, 'impact_normal', [0.0, 0.0, 1.0])),
+            'impact_location_xyz_m': list(self.p.impact_pos) if getattr(self.p, 'impact_pos', None) is not None else None,
+            'impact_normal': list(self.p.impact_normal) if getattr(self.p, 'impact_normal', None) is not None else None,
             'total_impact_charge_C': float(self.p.total_impact_charge_C),
             'ion_mass_amu': float(self.p.ion_mass_amu),
             'solar_wind_electron_temp_eV': float(self.p.solar_wind_electron_temp_eV),
@@ -396,7 +396,7 @@ class DustImpactSimulation3D:
                 except Exception as cp_err:
                     print(f"  [VAROVÁNÍ] Uložení checkpointu selhalo: {cp_err}")
 
-            if step % (max(1, self.p.steps // 10)) == 0:
+            if step % (max(1, self.p.steps // 100)) == 0:
                 print(f"  -> Průběh: {int(step / self.p.steps * 100)}% ({step}/{self.p.steps} kroků)")
 
         print(f"  -> Průběh: 100% ({self.p.steps}/{self.p.steps} kroků)")

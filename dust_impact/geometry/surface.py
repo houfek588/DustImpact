@@ -448,9 +448,14 @@ def compute_impact_intersection_and_normal(
 
     Returns
     -------
-    Tuple[np.ndarray, np.ndarray]
-        (impact_pos, impact_normal)
+    Tuple[Optional[np.ndarray], Optional[np.ndarray]]
+        (impact_pos, impact_normal) or (None, None) if plasma_injection_mode is 'homogeneous'.
     """
+    if getattr(params, 'plasma_injection_mode', 'point_cloud') == 'homogeneous':
+        params.impact_pos = None
+        params.impact_normal = None
+        return None, None
+
     P_start = np.array(
         getattr(params, 'impact_location_xyz_m', getattr(params, 'impact_pos', [-2.0, 2.0, 0.0])),
         dtype=float

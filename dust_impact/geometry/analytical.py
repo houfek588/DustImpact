@@ -436,10 +436,17 @@ def build_analytical_simulation_geometry(params: Any, analytical_config: Any):
     Ey_bg[all_conductors_mask] = 0.0
     Ez_bg[all_conductors_mask] = 0.0
 
-    # 7. Impact intersection & normal
-    impact_pt, normal_vec = compute_impact_intersection_and_normal(
-        params, Vw_body=np.zeros_like(V_bg), spacecraft_mask_3d=spacecraft_mask
-    )
+    # 7. Impact intersection & normal (only for localized dust impact)
+    is_homogeneous = getattr(params, 'plasma_injection_mode', 'point_cloud') == 'homogeneous'
+    if not is_homogeneous:
+        impact_pt, normal_vec = compute_impact_intersection_and_normal(
+            params, Vw_body=np.zeros_like(V_bg), spacecraft_mask_3d=spacecraft_mask
+        )
+        impact_pos = list(impact_pt) if impact_pt is not None else None
+        impact_normal = list(normal_vec) if normal_vec is not None else None
+    else:
+        impact_pos = None
+        impact_normal = None
 
     print(f"  -> Analytická pole vyřešena pro {num_antennas} antén a těleso sondy (V_sc = {V_sc:.2f} V).")
 
@@ -464,7 +471,7 @@ def build_analytical_simulation_geometry(params: Any, analytical_config: Any):
         Ewz_list=Ewz_list,
         antenna_masks_3d=antenna_masks,
         spacecraft_mask_3d=spacecraft_mask,
-        impact_pos=list(impact_pt),
-        impact_normal=list(normal_vec),
+        impact_pos=impact_pos,
+        impact_normal=impact_normal,
         antenna_geometries=ant_geoms,
     )

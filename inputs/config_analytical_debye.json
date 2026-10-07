@@ -37,9 +37,9 @@
     "numeric": {
         "num_macroparticles": 5000,
         "time_step_s": 2e-09,
-        "num_time_steps": 100,
+        "num_time_steps": 10000,
         "domain_half_length_m": [5.0, 5.0, 5.0],
-        "grid_nodes": [150, 150, 150]
+        "grid_nodes": [40, 40, 40]
     },
     "plotting": {
         "run_physical_simulation": true,

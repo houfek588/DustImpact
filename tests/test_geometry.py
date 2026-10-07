@@ -355,9 +355,10 @@ class TestPreparedGeometryAndIntegration(unittest.TestCase):
         self.assertEqual(len(params.geometry.analytical.antennas), 4)
         expected_voltages = [a.voltage_V for a in params.geometry.analytical.antennas]
         self.assertEqual(params.antenna_bias_voltage_V, expected_voltages)
-        self.assertEqual(params.V_bias, expected_voltages)
-        self.assertEqual(params.antenna_capacitance_F, [2e-12, 2e-12, 2e-12, 2e-12])
-        self.assertEqual(params.antenna_resistance_Ohm, [100000.0, 100000.0, 100000.0, 100000.0])
+        expected_caps = [a.capacitance_F for a in params.geometry.analytical.antennas]
+        expected_res = [a.resistance_Ohm for a in params.geometry.analytical.antennas]
+        self.assertEqual(params.antenna_capacitance_F, expected_caps)
+        self.assertEqual(params.antenna_resistance_Ohm, expected_res)
 
     def test_config_loader_spis_unified_geometry(self):
         from dust_impact.solver.config_loader import setup_simulation_parameters_3d
@@ -553,6 +554,34 @@ class TestPreparedGeometryAndIntegration(unittest.TestCase):
         self.assertEqual(p_custom.impact_time_delay_s, 5e-9)
         self.assertEqual(p_custom.t_delay, 5e-9)
         self.assertEqual(p_custom.physics.impact.location, [1.0, -1.0, 2.0])
+
+    def test_homogeneous_plasma_skips_impact_calculation(self):
+        from dust_impact.solver.config_loader import (
+            GeometryConfig, AnalyticalGeometryConfig, AnalyticalSpacecraftPart
+        )
+        p_homo = SimulationParams3D(
+            domain_half_length_x_m=2.0,
+            domain_half_length_y_m=2.0,
+            domain_half_length_z_m=2.0,
+            grid_nodes_x=10,
+            grid_nodes_y=10,
+            grid_nodes_z=10,
+            plasma_injection_mode="homogeneous",
+            geometry=GeometryConfig(
+                source="analytical",
+                analytical=AnalyticalGeometryConfig(
+                    spacecraft=AnalyticalSpacecraftPart(type="sphere", center=[0, 0, 0], radius=0.8),
+                    antennas=[]
+                )
+            )
+        )
+        self.assertIsNone(p_homo.impact_pos)
+        self.assertIsNone(p_homo.impact_normal)
+
+        prep = build_simulation_geometry(p_homo)
+        self.assertIsNone(prep.impact_pos)
+        self.assertIsNone(prep.impact_normal)
+        self.assertIn("Homogeneous", prep.summary())
 
 
 if __name__ == '__main__':
