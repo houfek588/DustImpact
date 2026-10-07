@@ -25,7 +25,7 @@
         "ion_mass_amu": 27.0,
         "impact_cloud_temperature_eV": 2.0,
         "solar_wind_electron_temp_eV": 15.0,
-        "solar_wind_density_m3": 10000000.0,
+        "solar_wind_density_m3": 100000000.0,
         "total_impact_charge_C": 5e-11,
         "plasma_injection_mode": "homogeneous",
         "impact": {
@@ -39,7 +39,7 @@
         "time_step_s": 2e-09,
         "num_time_steps": 100,
         "domain_half_length_m": [5.0, 5.0, 5.0],
-        "grid_nodes": [40, 40, 40]
+        "grid_nodes": [150, 150, 150]
     },
     "plotting": {
         "run_physical_simulation": true,

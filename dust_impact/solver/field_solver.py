@@ -167,7 +167,7 @@ class FieldSolver3D:
             try:
                 V_self_1d = self.amg_solver.solve(b_self, x0=x_init, tol=1e-4, maxiter=20, accel='cg')
             except Exception:
-                V_self_1d = self.amg_solver.solve(b_self, tol=1e-3, maxiter=20)
+                V_self_1d = self.amg_solver.solve(b_self, tol=1e-3, maxiter=20, accel='cg')
             V_self_1d = np.nan_to_num(V_self_1d, nan=0.0, posinf=0.0, neginf=0.0)
         else:
             V_self_1d = self.lu_solver(b_self)

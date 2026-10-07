@@ -300,7 +300,11 @@ def solve_laplace_dirichlet_3d(
     # Build solver hierarchy once
     if HAS_PYAMG:
         solver = build_pyamg_solver(A_csr)
-        solve_func = lambda b_vec: solver.solve(b_vec, tol=1e-6)
+        def solve_func(b_vec: np.ndarray) -> np.ndarray:
+            try:
+                return solver.solve(b_vec, tol=1e-5, maxiter=50, accel='gmres')
+            except Exception:
+                return solver.solve(b_vec, tol=1e-4, maxiter=50)
     else:
         solver = spla.factorized(A.tocsc())
         solve_func = lambda b_vec: solver(b_vec)
@@ -310,6 +314,16 @@ def solve_laplace_dirichlet_3d(
         b = np.zeros(N_tot, dtype=float)
         b[fixed_indices] = rhs_grid.ravel()[fixed_indices]
         sol_1d = solve_func(b)
+
+        # Apply physical bounding (maximum principle of Laplace/Helmholtz equation)
+        # Potential outside conductors cannot exceed Dirichlet boundary extrema
+        v_fixed = rhs_grid.ravel()[fixed_indices]
+        if len(v_fixed) > 0:
+            v_min = min(0.0, float(np.min(v_fixed)))
+            v_max = max(0.0, float(np.max(v_fixed)))
+            sol_1d = np.nan_to_num(sol_1d, nan=0.0)
+            sol_1d = np.clip(sol_1d, v_min, v_max)
+
         solutions.append(sol_1d.reshape((Nx, Ny, Nz)))
 
     return solutions

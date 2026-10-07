@@ -191,9 +191,17 @@ def _resolve_output_paths(plot_config: PlottingConfig3D, base_dir: str, output_d
         for key in output_path_keys:
             val = getattr(plot_config, key, None)
             if val:
-                setattr(plot_config, key, _resolve_path(base_dir, val))
+                norm_val = os.path.normpath(val)
+                if norm_val.startswith("outputs") or os.path.isabs(val):
+                    setattr(plot_config, key, os.path.abspath(val))
+                else:
+                    setattr(plot_config, key, _resolve_path(base_dir, val))
         if plot_config.vtk_output_dir and not os.path.isabs(plot_config.vtk_output_dir):
-            plot_config.vtk_output_dir = os.path.join(base_dir, plot_config.vtk_output_dir)
+            norm_vtk = os.path.normpath(plot_config.vtk_output_dir)
+            if norm_vtk.startswith("outputs"):
+                plot_config.vtk_output_dir = os.path.abspath(plot_config.vtk_output_dir)
+            else:
+                plot_config.vtk_output_dir = os.path.join(base_dir, plot_config.vtk_output_dir)
 
 
 def load_and_validate_config(config_file: str) -> Tuple[SimulationConfigSchema, str]:

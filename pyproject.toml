@@ -4,24 +4,30 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dust_impact"
-version = "0.1.0"
+version = "0.3.0"
 description = "Kinetic PIC simulation package for dust impacts on spacecraft in outer space"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 dependencies = [
-    "numpy",
-    "scipy",
-    "matplotlib",
-    "pillow",
-    "h5py"
+    "numpy>=1.20.0",
+    "scipy>=1.7.0",
+    "matplotlib>=3.4.0",
+    "pillow>=8.0.0",
+    "pyvista>=0.38.0",
+    "h5py>=3.0.0",
+    "pydantic>=2.0.0",
+    "pyamg>=4.2.0"
 ]
 
 [project.optional-dependencies]
+accelerated = [
+    "numba>=0.56.0"
+]
 test = [
     "pytest"
 ]
 3d = [
-    "pyvista"
+    "pyvista>=0.38.0"
 ]
 
 [project.scripts]

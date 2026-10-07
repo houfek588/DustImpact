@@ -33,8 +33,18 @@ class TestCLIAndConfig(unittest.TestCase):
         debye_config = os.path.join("inputs", "config_analytical_debye.json")
         self.assertTrue(os.path.exists(debye_config))
         with tempfile.TemporaryDirectory() as tmp_dir:
+            import json
+            with open(debye_config, 'r', encoding='utf-8') as f:
+                cfg_dict = json.load(f)
+            cfg_dict["numeric"]["grid_nodes"] = [16, 16, 16]
+            cfg_dict["numeric"]["num_time_steps"] = 3
+            cfg_dict["numeric"]["num_macroparticles"] = 50
+            test_cfg_path = os.path.join(tmp_dir, "test_config.json")
+            with open(test_cfg_path, 'w', encoding='utf-8') as f:
+                json.dump(cfg_dict, f)
+
             params, toggles, plot_cfg = setup_simulation_parameters_3d(
-                Vf=10.0, Vf_antenne=25.0, config_file=debye_config, output_dir=tmp_dir
+                Vf=10.0, Vf_antenne=25.0, config_file=test_cfg_path, output_dir=tmp_dir
             )
             self.assertEqual(len(params.C_ant), 0)
             self.assertEqual(len(params.R_ant), 0)
