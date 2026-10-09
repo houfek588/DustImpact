@@ -259,7 +259,10 @@ def setup_simulation_parameters_3d(
         location=list(imp_s.location),
         direction=list(imp_s.direction),
         time_delay_s=float(imp_s.time_delay_s),
-        normal=list(imp_s.normal) if imp_s.normal is not None else None
+        normal=list(imp_s.normal) if imp_s.normal is not None else None,
+        electron_temperature_eV=float(imp_s.electron_temperature_eV),
+        ion_temperature_eV=float(imp_s.ion_temperature_eV) if imp_s.ion_temperature_eV is not None else float(imp_s.electron_temperature_eV),
+        temperature_eV=float(imp_s.temperature_eV) if imp_s.temperature_eV is not None else None,
     )
 
     # 4. Physics configuration
@@ -274,12 +277,13 @@ def setup_simulation_parameters_3d(
 
     physics_cfg = PhysicsConfig(
         ion_mass_amu=float(phy_s.ion_mass_amu),
-        impact_cloud_temperature_eV=float(phy_s.impact_cloud_temperature_eV),
         solar_wind_electron_temp_eV=float(phy_s.solar_wind_electron_temp_eV),
+        solar_wind_ion_temp_eV=float(phy_s.solar_wind_ion_temp_eV) if phy_s.solar_wind_ion_temp_eV is not None else float(phy_s.solar_wind_electron_temp_eV),
         solar_wind_density_m3=float(phy_s.solar_wind_density_m3),
         total_impact_charge_C=float(phy_s.total_impact_charge_C),
         plasma_injection_mode=phy_s.plasma_injection_mode,
         impact=impact_obj,
+        impact_cloud_temperature_eV=float(phy_s.impact_cloud_temperature_eV) if phy_s.impact_cloud_temperature_eV is not None else float(impact_obj.electron_temperature_eV),
         spacecraft_voltage_V=sc_volt,
         antenna_capacitance_F=[float(c) for c in phy_s.antenna_capacitance_F] if phy_s.antenna_capacitance_F else None,
         antenna_resistance_Ohm=[float(r) for r in phy_s.antenna_resistance_Ohm] if phy_s.antenna_resistance_Ohm else None,
@@ -309,6 +313,10 @@ def setup_simulation_parameters_3d(
         domain_half_length_m=list(numeric_cfg.domain_half_length_m),
         grid_nodes=list(numeric_cfg.grid_nodes),
         impact=impact_obj,
+        impact_electron_temp_eV=impact_obj.electron_temperature_eV,
+        impact_ion_temp_eV=impact_obj.ion_temperature_eV,
+        solar_wind_electron_temp_eV=physics_cfg.solar_wind_electron_temp_eV,
+        solar_wind_ion_temp_eV=physics_cfg.solar_wind_ion_temp_eV,
         weighting_threshold=geom_cfg.spis.weighting_threshold if geom_cfg.source == "spis" else 0.85
     )
 

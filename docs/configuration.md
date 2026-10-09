@@ -169,15 +169,17 @@ Obsahuje materiálové a plazmatické parametry slunečního větru, impaktního
 ```json
 "physics": {
     "ion_mass_amu": 27.0,
-    "impact_cloud_temperature_eV": 2.0,
     "solar_wind_electron_temp_eV": 15.0,
+    "solar_wind_ion_temp_eV": 15.0,
     "solar_wind_density_m3": 10000000.0,
     "total_impact_charge_C": 5e-11,
     "plasma_injection_mode": "point_cloud",
     "impact": {
         "location": [-2.0, 2.0, 0.0],
         "direction": [1.0, -1.0, 0.0],
-        "time_delay_s": 1e-08
+        "time_delay_s": 1e-08,
+        "electron_temperature_eV": 2.0,
+        "ion_temperature_eV": 2.0
     }
 }
 ```
@@ -185,19 +187,23 @@ Obsahuje materiálové a plazmatické parametry slunečního větru, impaktního
 | Parametr | Typ | Výchozí | Jednotka | Popis |
 |---|---|---|---|---|
 | `ion_mass_amu` | `float` | `27.0` | $\text{amu}$ | Hmotnost iontů vzniklých ionizací impaktního terče/prachu (např. $27.0$ pro hliník $\text{Al}$, $56.0$ pro železo $\text{Fe}$, $12.0$ pro uhlík $\text{C}$). |
-| `impact_cloud_temperature_eV` | `float` | `2.0` | $\text{eV}$ | Počáteční kinetická teplota expandujícího impaktního plazmatu (typicky $1\text{–}5\text{ eV} \approx 10\,000\text{–}50\,000\text{ K}$). |
-| `solar_wind_electron_temp_eV` | `float` | `15.0` | $\text{eV}$ | Teplota elektronů okolního slunečního větru (na $1\text{ AU}$ typicky $10\text{–}15\text{ eV}$). |
+| `solar_wind_electron_temp_eV` | `float` | `15.0` | $\text{eV}$ | Teplota elektronů okolního slunečního větru (na $1\text{ AU}$ typicky $10\text{–}15\text{ eV}$). V režimu `"homogeneous"` určuje termální rychlost elektronů $v_{\text{th},e}$; určuje Debyeovu délku $\lambda_D$. |
+| `solar_wind_ion_temp_eV` | `float` | `None` ($= T_e$) | $\text{eV}$ | Teplota iontů okolního slunečního větru. V režimu `"homogeneous"` určuje termální rychlost iontů $v_{\text{th},i}$. Pokud není zadáno, přebírá hodnotu `solar_wind_electron_temp_eV`. |
 | `solar_wind_density_m3` | `float` | `1e7` | $\text{m}^{-3}$ | Číselná hustota okolního plazmatu (na $1\text{ AU}$ typicky $5\times 10^6\text{ až }10^7\text{ m}^{-3}$). Určuje Debyeovu délku $\lambda_D$. |
 | `total_impact_charge_C` | `float` | `5e-11` | $\text{C}$ | Celkový kladný (i záporný) náboj $Q_{\text{tot}}$ uvolněný při dopadu prachového zrna (např. $50\text{ pC} = 5\times 10^{-11}\text{ C}$). |
-| `plasma_injection_mode` | `string` | `"point_cloud"` | - | Režim injekce plazmatu:<br>• `"point_cloud"`: expanze plazmatického obláčku z bodu dopadu na povrchu sondy.<br>• `"homogeneous"`: rovnoměrné naplnění domény plazmatem slunečního větru. |
+| `plasma_injection_mode` | `string` | `"point_cloud"` | - | Režim injekce plazmatu:<br>• `"point_cloud"`: expanze plazmatického obláčku z bodu dopadu na povrchu sondy (používá teploty z `impact`).<br>• `"homogeneous"`: rovnoměrné naplnění domény plazmatem slunečního větru (používá teploty ze `solar_wind_*`). |
+| `impact_cloud_temperature_eV` | `float` | `None` | $\text{eV}$ | *[Legacy alias]* Původní parametr teploty oblaku pro zpětnou kompatibilitu. Pokud je zadán na úrovni `physics`, automaticky se namapuje do `impact.electron_temperature_eV` a `impact.ion_temperature_eV`. |
 
 #### Podobjekt `"impact"`:
-Sjednocuje geometrické a časové parametry nárazu:
+Sjednocuje geometrické, časové a termální parametry impaktního plazmatického oblaku (používá se v režimu `"point_cloud"`):
 | Parametr | Typ | Výchozí | Jednotka | Popis |
 |---|---|---|---|---|
 | `location` | `list[3]` | `[-2.0, 2.0, 0.0]` | $\text{m}$ | Počáteční prostorové souřadnice prachového zrna před nárazem $[x, y, z]$. Odtud je paprsek trasován k sondě. |
 | `direction` | `list[3]` | `[1.0, -1.0, 0.0]` | - | Směrový vektor letu prachového zrna $[v_x, v_y, v_z]$. Algoritmus ray-marchingu nalezne přesný průsečík s povrchem sondy a vypočte lokální normálu terče $\vec{n}$. Pokud je vektor nulový `[0, 0, 0]`, bod dopadu je převzat přímo z `location`. |
 | `time_delay_s` | `float` | `1e-6` | $\text{s}$ | Časové zpoždění expanze oblaku po zahájení simulace (umožňuje ustálení obvodů nebo zachycení před-impaktního šumu). |
+| `electron_temperature_eV` | `float` | `2.0` | $\text{eV}$ | Počáteční kinetická teplota elektronů v expandujícím impaktním oblaku (typicky $1\text{–}5\text{ eV} \approx 10\,000\text{–}50\,000\text{ K}$). Určuje $v_{\text{th},e}$ oblaku. |
+| `ion_temperature_eV` | `float` | `None` ($= T_e$) | $\text{eV}$ | Počáteční kinetická teplota iontů v expandujícím impaktním oblaku. Určuje $v_{\text{th},i}$ oblaku. Pokud není zadáno, přebírá hodnotu `electron_temperature_eV`. |
+| `temperature_eV` | `float` | `None` | $\text{eV}$ | Volitelný alias pro nastavení obou teplot `electron_temperature_eV` i `ion_temperature_eV` jedním číslem. |
 
 ---
 

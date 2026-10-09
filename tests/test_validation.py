@@ -186,6 +186,51 @@ class TestConfigValidation(unittest.TestCase):
         self.assertEqual(params.grid_nodes_z, 150)
         self.assertTrue(toggles.enable_spis_background_field)
 
+    def test_two_temperature_validation_and_fallbacks(self):
+        """Separate electron/ion temperatures in physics and impact should validate with correct fallbacks."""
+        cfg = copy.deepcopy(self.base_config)
+        cfg["physics"]["solar_wind_electron_temp_eV"] = 20.0
+        cfg["physics"]["solar_wind_ion_temp_eV"] = 10.0
+        cfg["physics"]["impact"]["electron_temperature_eV"] = 3.5
+        cfg["physics"]["impact"]["ion_temperature_eV"] = 1.2
+
+        schema = SimulationConfigSchema.model_validate(cfg)
+        self.assertEqual(schema.physics.solar_wind_electron_temp_eV, 20.0)
+        self.assertEqual(schema.physics.solar_wind_ion_temp_eV, 10.0)
+        self.assertEqual(schema.physics.impact.electron_temperature_eV, 3.5)
+        self.assertEqual(schema.physics.impact.ion_temperature_eV, 1.2)
+
+        # Test ion temperature fallbacks when omitted
+        cfg_fallback = copy.deepcopy(self.base_config)
+        cfg_fallback["physics"]["solar_wind_electron_temp_eV"] = 25.0
+        cfg_fallback["physics"].pop("solar_wind_ion_temp_eV", None)
+        cfg_fallback["physics"]["impact"]["electron_temperature_eV"] = 4.0
+        cfg_fallback["physics"]["impact"].pop("ion_temperature_eV", None)
+
+        schema_fb = SimulationConfigSchema.model_validate(cfg_fallback)
+        self.assertEqual(schema_fb.physics.solar_wind_ion_temp_eV, 25.0)
+        self.assertEqual(schema_fb.physics.impact.ion_temperature_eV, 4.0)
+
+    def test_legacy_impact_cloud_temperature_mapping(self):
+        """Legacy physics.impact_cloud_temperature_eV must be automatically mapped to impact temperatures."""
+        cfg = copy.deepcopy(self.base_config)
+        cfg["physics"]["impact_cloud_temperature_eV"] = 5.0
+        cfg["physics"]["impact"].pop("electron_temperature_eV", None)
+        cfg["physics"]["impact"].pop("ion_temperature_eV", None)
+
+        schema = SimulationConfigSchema.model_validate(cfg)
+        self.assertEqual(schema.physics.impact.electron_temperature_eV, 5.0)
+        self.assertEqual(schema.physics.impact.ion_temperature_eV, 5.0)
+
+    def test_impact_temperature_alias(self):
+        """impact.temperature_eV should set both electron and ion temperatures."""
+        cfg = copy.deepcopy(self.base_config)
+        cfg["physics"]["impact"]["temperature_eV"] = 7.5
+
+        schema = SimulationConfigSchema.model_validate(cfg)
+        self.assertEqual(schema.physics.impact.electron_temperature_eV, 7.5)
+        self.assertEqual(schema.physics.impact.ion_temperature_eV, 7.5)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -38,15 +38,17 @@
     },
     "physics": {
         "ion_mass_amu": 27.0,
-        "impact_cloud_temperature_eV": 2.0,
         "solar_wind_electron_temp_eV": 15.0,
+        "solar_wind_ion_temp_eV": 15.0,
         "solar_wind_density_m3": 10000000.0,
         "total_impact_charge_C": 5e-11,
         "plasma_injection_mode": "point_cloud",
         "impact": {
             "location": [-2.0, 2.0, 0.0],
             "direction": [1.0, -1.0, 0.0],
-            "time_delay_s": 1e-08
+            "time_delay_s": 1e-08,
+            "electron_temperature_eV": 2.0,
+            "ion_temperature_eV": 2.0
         }
     },
     "numeric": {

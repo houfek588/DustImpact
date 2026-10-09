@@ -36,8 +36,8 @@ class ParticleEnsemble:
         self.toggles = toggles
         self.spacecraft_geometry = spacecraft_geometry
 
-        v_th_e = np.sqrt(2 * e * self.p.T_dust_eV / m_e)
-        v_th_i = np.sqrt(2 * e * self.p.T_dust_eV / self.p.m_i)
+        v_th_e = self.p.v_th_e
+        v_th_i = self.p.v_th_i
 
         mode = getattr(self.p, 'plasma_injection_mode', 'point_cloud')
 

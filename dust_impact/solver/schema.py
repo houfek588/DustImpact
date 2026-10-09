@@ -287,6 +287,39 @@ class ImpactSchema(StrictBaseModel):
         None,
         description="Target surface normal vector [nx, ny, nz]"
     )
+    electron_temperature_eV: Annotated[float, Field(gt=0.0)] = Field(
+        2.0,
+        description="Electron kinetic temperature of the impact plasma cloud [eV]"
+    )
+    ion_temperature_eV: Optional[Annotated[float, Field(gt=0.0)]] = Field(
+        None,
+        description="Ion kinetic temperature of the impact plasma cloud [eV] (defaults to electron_temperature_eV if omitted)"
+    )
+    temperature_eV: Optional[Annotated[float, Field(gt=0.0)]] = Field(
+        None,
+        description="Shorthand kinetic temperature for both electrons and ions in the impact cloud [eV]"
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _resolve_temperatures_dict(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            temp_alias = data.get("temperature_eV")
+            if temp_alias is not None:
+                data["electron_temperature_eV"] = float(temp_alias)
+                data["ion_temperature_eV"] = float(temp_alias)
+            elif "electron_temperature_eV" in data and "ion_temperature_eV" not in data:
+                data["ion_temperature_eV"] = float(data["electron_temperature_eV"])
+        return data
+
+    @model_validator(mode="after")
+    def _finalize_temperatures(self) -> "ImpactSchema":
+        if self.temperature_eV is not None:
+            object.__setattr__(self, "electron_temperature_eV", float(self.temperature_eV))
+            object.__setattr__(self, "ion_temperature_eV", float(self.temperature_eV))
+        elif self.ion_temperature_eV is None:
+            object.__setattr__(self, "ion_temperature_eV", float(self.electron_temperature_eV))
+        return self
 
 
 class PhysicsSchema(StrictBaseModel):
@@ -294,13 +327,17 @@ class PhysicsSchema(StrictBaseModel):
         27.0,
         description="Ion mass in atomic mass units (e.g. 27.0 for Al)"
     )
-    impact_cloud_temperature_eV: Annotated[float, Field(gt=0.0)] = Field(
-        2.0,
-        description="Initial kinetic temperature of impact cloud [eV]"
+    impact_cloud_temperature_eV: Optional[Annotated[float, Field(gt=0.0)]] = Field(
+        None,
+        description="Legacy alias: Initial kinetic temperature of impact cloud [eV] (superseded by impact.electron_temperature_eV and impact.ion_temperature_eV)"
     )
     solar_wind_electron_temp_eV: Annotated[float, Field(gt=0.0)] = Field(
         15.0,
         description="Ambient solar wind electron temperature [eV]"
+    )
+    solar_wind_ion_temp_eV: Optional[Annotated[float, Field(gt=0.0)]] = Field(
+        None,
+        description="Ambient solar wind ion temperature [eV] (defaults to solar_wind_electron_temp_eV if omitted)"
     )
     solar_wind_density_m3: Annotated[float, Field(gt=0.0)] = Field(
         1e7,
@@ -316,7 +353,7 @@ class PhysicsSchema(StrictBaseModel):
     )
     impact: ImpactSchema = Field(
         default_factory=ImpactSchema,
-        description="Dust grain impact trajectory and timing"
+        description="Dust grain impact trajectory, timing, and cloud temperatures"
     )
     spacecraft_voltage_V: Optional[float] = Field(
         None,
@@ -334,6 +371,37 @@ class PhysicsSchema(StrictBaseModel):
         None,
         description="Bias potentials per antenna [V]"
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _resolve_legacy_physics(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            legacy_temp = data.get("impact_cloud_temperature_eV")
+            impact_data = data.get("impact")
+            if legacy_temp is not None:
+                if impact_data is None:
+                    data["impact"] = {
+                        "electron_temperature_eV": float(legacy_temp),
+                        "ion_temperature_eV": float(legacy_temp),
+                    }
+                elif isinstance(impact_data, dict):
+                    if "electron_temperature_eV" not in impact_data and "temperature_eV" not in impact_data:
+                        impact_data["electron_temperature_eV"] = float(legacy_temp)
+                    if "ion_temperature_eV" not in impact_data and "temperature_eV" not in impact_data:
+                        impact_data["ion_temperature_eV"] = float(legacy_temp)
+            sw_e = data.get("solar_wind_electron_temp_eV")
+            sw_i = data.get("solar_wind_ion_temp_eV")
+            if sw_e is not None and sw_i is None:
+                data["solar_wind_ion_temp_eV"] = float(sw_e)
+        return data
+
+    @model_validator(mode="after")
+    def _finalize_physics_temperatures(self) -> "PhysicsSchema":
+        if self.solar_wind_ion_temp_eV is None:
+            object.__setattr__(self, "solar_wind_ion_temp_eV", float(self.solar_wind_electron_temp_eV))
+        if self.impact_cloud_temperature_eV is None:
+            object.__setattr__(self, "impact_cloud_temperature_eV", float(self.impact.electron_temperature_eV))
+        return self
 
 
 class NumericSchema(StrictBaseModel):

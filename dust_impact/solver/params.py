@@ -58,11 +58,25 @@ class PlottingConfig3D:
 
 @dataclass
 class ImpactConfig:
-    """Detailed specifications for dust impact location, velocity vector, and timing."""
+    """Detailed specifications for dust impact location, velocity vector, timing, and plasma cloud temperatures."""
     location: List[float] = field(default_factory=lambda: [-2.0, 2.0, 0.0])
     direction: List[float] = field(default_factory=lambda: [0.0, 0.0, 0.0])
     time_delay_s: float = 1e-6
     normal: Optional[List[float]] = None
+    electron_temperature_eV: float = 2.0
+    ion_temperature_eV: Optional[float] = None
+    temperature_eV: Optional[float] = None
+
+    def __post_init__(self):
+        if self.temperature_eV is not None:
+            self.electron_temperature_eV = float(self.temperature_eV)
+            if self.ion_temperature_eV is None:
+                self.ion_temperature_eV = float(self.temperature_eV)
+        elif self.ion_temperature_eV is None:
+            self.ion_temperature_eV = float(self.electron_temperature_eV)
+        else:
+            self.ion_temperature_eV = float(self.ion_temperature_eV)
+        self.electron_temperature_eV = float(self.electron_temperature_eV)
 
     @property
     def location_xyz_m(self) -> List[float]:
@@ -77,8 +91,8 @@ class ImpactConfig:
 class PhysicsConfig:
     """Physics parameters of the impact plasma cloud and ambient solar wind."""
     ion_mass_amu: float = 27.0
-    impact_cloud_temperature_eV: float = 2.0
     solar_wind_electron_temp_eV: float = 15.0
+    solar_wind_ion_temp_eV: Optional[float] = None
     solar_wind_density_m3: float = 1e7
     total_impact_charge_C: float = 50e-12
     plasma_injection_mode: str = "point_cloud"
@@ -88,22 +102,42 @@ class PhysicsConfig:
     antenna_resistance_Ohm: Optional[List[float]] = None
     antenna_bias_voltage_V: Optional[List[float]] = None
 
-    # Backward compatibility flat fields
+    # Backward compatibility flat/legacy fields
+    impact_cloud_temperature_eV: Optional[float] = None
     impact_location_xyz_m: Optional[List[float]] = None
     impact_direction_vector: Optional[List[float]] = None
     impact_normal: Optional[List[float]] = None
     impact_time_delay_s: Optional[float] = None
 
     def __post_init__(self):
+        if self.solar_wind_ion_temp_eV is None:
+            self.solar_wind_ion_temp_eV = float(self.solar_wind_electron_temp_eV)
+        else:
+            self.solar_wind_ion_temp_eV = float(self.solar_wind_ion_temp_eV)
+
         if isinstance(self.impact, dict):
             loc = self.impact.get('location', [-2.0, 2.0, 0.0])
             direc = self.impact.get('direction', [0.0, 0.0, 0.0])
             t_del = float(self.impact.get('time_delay_s', 1e-6))
             norm = self.impact.get('normal', None)
+            e_temp = float(self.impact.get('electron_temperature_eV', 2.0))
+            i_temp = self.impact.get('ion_temperature_eV', None)
+            i_temp = float(i_temp) if i_temp is not None else None
+            temp_alias = self.impact.get('temperature_eV', None)
+            temp_alias = float(temp_alias) if temp_alias is not None else None
             self.impact = ImpactConfig(
                 location=list(loc), direction=list(direc), time_delay_s=t_del,
-                normal=list(norm) if norm is not None else None
+                normal=list(norm) if norm is not None else None,
+                electron_temperature_eV=e_temp,
+                ion_temperature_eV=i_temp,
+                temperature_eV=temp_alias
             )
+
+        if self.impact_cloud_temperature_eV is not None:
+            self.impact.electron_temperature_eV = float(self.impact_cloud_temperature_eV)
+            self.impact.ion_temperature_eV = float(self.impact_cloud_temperature_eV)
+        else:
+            self.impact_cloud_temperature_eV = float(self.impact.electron_temperature_eV)
 
         if self.impact_location_xyz_m is not None:
             self.impact.location = list(self.impact_location_xyz_m)
@@ -469,6 +503,11 @@ class SimulationParams3D(BaseSimulationParams):
             else:
                 self.impact_normal = [-0.7071, 0.7071, 0.0]
                 self.impact.normal = list(self.impact_normal)
+
+        if hasattr(self, 'impact') and self.impact is not None:
+            self.impact_electron_temp_eV = float(getattr(self.impact, 'electron_temperature_eV', 2.0))
+            self.impact_ion_temp_eV = float(getattr(self.impact, 'ion_temperature_eV', self.impact_electron_temp_eV))
+            self.impact_cloud_temperature_eV = float(self.impact_electron_temp_eV)
 
         # 4. Base derived params
         self._init_base_derived_params()

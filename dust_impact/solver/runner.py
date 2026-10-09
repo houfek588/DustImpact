@@ -58,6 +58,12 @@ def run_3d_simulation(
     primary_output_path = plot_config.primary_output_filepath
     print(f"Zvolený formát ukládání dat: {plot_config.output_format.upper()} ({primary_output_path})")
 
+    inj_mode = getattr(sim_params, 'plasma_injection_mode', 'point_cloud')
+    if inj_mode == 'homogeneous':
+        print(f"Režim plazmatu: HOMOGENEOUS (sluneční vítr: T_e = {sim_params.solar_wind_electron_temp_eV:.2f} eV, T_i = {sim_params.solar_wind_ion_temp_eV:.2f} eV)")
+    else:
+        print(f"Režim plazmatu: POINT_CLOUD (impaktní oblak: T_e = {sim_params.impact_electron_temp_eV:.2f} eV, T_i = {sim_params.impact_ion_temp_eV:.2f} eV | sluneční vítr: T_e = {sim_params.solar_wind_electron_temp_eV:.2f} eV)")
+
     print(f"Vypočtená Debyeova délka: {sim_params.debye_length:.3f} m")
     print(f"Elektronová plazmová frekvence: omega_pe = {sim_params.omega_pe:.3e} rad/s (f_pe = {sim_params.f_pe:.3e} Hz)")
     print(f"Iontová plazmová frekvence: omega_pi = {sim_params.omega_pi:.3e} rad/s (f_pi = {sim_params.f_pi:.3e} Hz)")

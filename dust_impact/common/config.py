@@ -37,7 +37,13 @@ class BaseSimulationParams:
     impact_time_delay_s: float = 1e-6
 
     solar_wind_electron_temp_eV: float = 15.0
+    solar_wind_ion_temp_eV: Optional[float] = None
     solar_wind_density_m3: float = 1e7
+
+    # Impact cloud temperatures (used in 'point_cloud' mode)
+    impact_electron_temp_eV: float = 2.0
+    impact_ion_temp_eV: Optional[float] = None
+    impact_cloud_temperature_eV: float = 2.0  # Legacy alias
 
     # Total impact cloud charge in Coulombs (default: 50 pC)
     total_impact_charge_C: float = 50e-12
@@ -74,13 +80,40 @@ class BaseSimulationParams:
         if self.spacecraft_voltage_V is None:
             self.spacecraft_voltage_V = float(self.Vf)
         self.m_i = self.ion_mass_amu * amu
+
+        # 1. Fallback for ion temperatures
+        if self.solar_wind_ion_temp_eV is None:
+            self.solar_wind_ion_temp_eV = float(self.solar_wind_electron_temp_eV)
+        else:
+            self.solar_wind_ion_temp_eV = float(self.solar_wind_ion_temp_eV)
+
+        if self.impact_cloud_temperature_eV != 2.0 and self.impact_electron_temp_eV == 2.0:
+            self.impact_electron_temp_eV = float(self.impact_cloud_temperature_eV)
+            if self.impact_ion_temp_eV is None:
+                self.impact_ion_temp_eV = float(self.impact_cloud_temperature_eV)
+
+        if self.impact_ion_temp_eV is None:
+            self.impact_ion_temp_eV = float(self.impact_electron_temp_eV)
+
+        self.impact_cloud_temperature_eV = float(self.impact_electron_temp_eV)
+
+        # 2. Ambient plasma quantities (always based on solar wind)
         self.debye_length = float(np.sqrt((eps_0 * self.solar_wind_electron_temp_eV * e) / (self.solar_wind_density_m3 * e ** 2)))
         self.omega_pe = float(np.sqrt((self.solar_wind_density_m3 * e ** 2) / (eps_0 * m_e)))
         self.f_pe = float(self.omega_pe / (2.0 * np.pi))
         self.omega_pi = float(np.sqrt((self.solar_wind_density_m3 * e ** 2) / (eps_0 * self.m_i)))
         self.f_pi = float(self.omega_pi / (2.0 * np.pi))
-        self.v_th_e = float(np.sqrt(2.0 * e * self.impact_cloud_temperature_eV / m_e))
-        self.v_th_i = float(np.sqrt(2.0 * e * self.impact_cloud_temperature_eV / self.m_i))
+
+        # 3. Active thermal velocities based on injection mode
+        if getattr(self, 'plasma_injection_mode', 'point_cloud') == 'homogeneous':
+            active_Te_eV = float(self.solar_wind_electron_temp_eV)
+            active_Ti_eV = float(self.solar_wind_ion_temp_eV)
+        else:
+            active_Te_eV = float(self.impact_electron_temp_eV)
+            active_Ti_eV = float(self.impact_ion_temp_eV)
+
+        self.v_th_e = float(np.sqrt(2.0 * e * active_Te_eV / m_e))
+        self.v_th_i = float(np.sqrt(2.0 * e * active_Ti_eV / self.m_i))
         self.q_macro = self.total_impact_charge_C / self.num_macroparticles
 
         if self.simulation_duration_s is not None and (self.num_time_steps == 10000 or self.num_time_steps is None):
@@ -93,7 +126,7 @@ class BaseSimulationParams:
         self.time_array = np.linspace(0, self.simulation_duration_s, self.steps)
 
         self.N_particles = self.num_macroparticles
-        self.T_dust_eV = self.impact_cloud_temperature_eV
+        self.T_dust_eV = active_Te_eV
         self.dt = self.time_step_s
         self.t_max = self.simulation_duration_s
         self.t_delay = self.impact_time_delay_s
