@@ -156,6 +156,8 @@ Booleovské přepínače, které umožňují izolovat jednotlivé fyzikální me
 | `enable_antenna_particle_collection` | `bool` | `true` | Zapnutí absorpce elektronů a iontů povrchem antény a generování sběrového proudu $I_{\text{col}}(t)$. |
 | `enable_rc_circuit_response` | `bool` | `true` | Zapnutí časové integrace RC obvodu antény ($\frac{dV}{dt} = \frac{I_{\text{tot}}}{C} - \frac{V}{RC}$). Při `false` se proud pouze zaznamenává, ale napětí se neintegruje. |
 | `enable_antenna_bias_voltage` | `bool` | `true` | Inicializace počátečního předpětí antén z konfigurace v čase $t = 0$. |
+| `circuit_solver` | `string` | `"rk4"` | Numerická metoda integrace RC obvodu: `"rk4"` (Runge-Kutta 4. řádu s lineární interpolací proudu, výchozí) nebo `"euler"` (Forward Euler 1. řádu). |
+| `particle_boundary_mode` | `string` | `"open"` | Okrajová podmínka pro makročástice na vnějších hranicích simulačního boxu $[-L, L]$: `"open"` (částice po opuštění domény trvale zaniknou) nebo `"periodic"` (částice cyklicky vstupují z protilehlé stěny boxu při zachování rychlosti, ideální pro rovnovážné ambientní plazma). |
 
 ---
 

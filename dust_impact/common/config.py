@@ -16,6 +16,8 @@ class BaseSimulationToggles:
     enable_antenna_particle_collection: bool = True
     enable_rc_circuit_response: bool = True
     enable_antenna_bias_voltage: bool = True
+    circuit_solver: str = "rk4"
+    particle_boundary_mode: str = "open"
 
 
 @dataclass

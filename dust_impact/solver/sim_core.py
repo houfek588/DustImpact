@@ -75,7 +75,8 @@ class DustImpactSimulation3D:
 
         # Subsystems
         self.particles = ParticleEnsemble(
-            params, spacecraft_mask_3d, self.num_antennas, antenna_geometries=antenna_geometries
+            params, spacecraft_mask_3d, self.num_antennas,
+            antenna_geometries=antenna_geometries, toggles=toggles
         )
         self.field_solver = FieldSolver3D(
             params, toggles, V_bg, Ex_bg, Ey_bg, Ez_bg,
@@ -310,7 +311,8 @@ class DustImpactSimulation3D:
             'f_pi': float(self.p.f_pi),
             'v_th_e': float(self.p.v_th_e),
             'v_th_i': float(self.p.v_th_i),
-            'plasma_injection_mode': getattr(self.p, 'plasma_injection_mode', 'point_cloud')
+            'plasma_injection_mode': getattr(self.p, 'plasma_injection_mode', 'point_cloud'),
+            'particle_boundary_mode': getattr(self.toggles, 'particle_boundary_mode', 'open')
         }
 
     def _build_results_dict(self) -> Dict[str, Any]:
@@ -340,6 +342,7 @@ class DustImpactSimulation3D:
         # 4. Push species if cloud injected
         if self.particles.cloud_injected:
             enable_coll = getattr(self.toggles, 'enable_antenna_particle_collection', True)
+            bnd_mode = getattr(self.toggles, 'particle_boundary_mode', 'open')
             ce, ie = self.particles.push_species(
                 self.particles.x_e, self.particles.y_e, self.particles.z_e,
                 self.particles.vx_e, self.particles.vy_e, self.particles.vz_e,
@@ -347,7 +350,8 @@ class DustImpactSimulation3D:
                 m_e, -e, -self.p.q_macro,
                 self.field_solver, self.antenna_masks_3d,
                 self.Ewx_list, self.Ewy_list, self.Ewz_list,
-                enable_collection=enable_coll
+                enable_collection=enable_coll,
+                boundary_mode=bnd_mode
             )
             ci, ii = self.particles.push_species(
                 self.particles.x_i, self.particles.y_i, self.particles.z_i,
@@ -356,7 +360,8 @@ class DustImpactSimulation3D:
                 self.p.m_i, e, self.p.q_macro,
                 self.field_solver, self.antenna_masks_3d,
                 self.Ewx_list, self.Ewy_list, self.Ewz_list,
-                enable_collection=enable_coll
+                enable_collection=enable_coll,
+                boundary_mode=bnd_mode
             )
             self.collector.record_step_currents(step_idx, ce, ci, ie, ii)
 

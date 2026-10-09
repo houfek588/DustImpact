@@ -256,6 +256,14 @@ class TogglesSchema(StrictBaseModel):
         True,
         description="Initialize antenna bias voltages at t=0"
     )
+    circuit_solver: Literal["rk4", "euler"] = Field(
+        "rk4",
+        description="Circuit ODE numerical integration method ('rk4' or 'euler')"
+    )
+    particle_boundary_mode: Literal["open", "periodic"] = Field(
+        "open",
+        description="Boundary condition for macroparticles at domain borders ('open' or 'periodic')"
+    )
 
 
 class ImpactSchema(StrictBaseModel):

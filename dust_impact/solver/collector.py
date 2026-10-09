@@ -48,7 +48,12 @@ class AntennaCircuitCollector:
         self.ind_curr_i[:, step] = ind_i
 
     def update_circuit(self, step: int) -> None:
-        """Computes total currents and updates RC circuit ODE for step."""
+        """
+        Computes total currents and updates the coupled lumped-element RC circuit ODE.
+        Uses 4th-order Runge-Kutta (RK4) integration by default with mid-step current interpolation.
+        Falls back to Forward Euler if circuit_solver == 'euler'.
+        """
+        dt = self.p.dt
         for a_idx in range(self.num_antennas):
             I_tot = (
                 self.ind_curr_e[a_idx, step]
@@ -61,16 +66,34 @@ class AntennaCircuitCollector:
             if step > 0:
                 c_ant = self.p.C_ant[a_idx] if a_idx < len(self.p.C_ant) else 1e-12
                 r_ant = self.p.R_ant[a_idx] if a_idx < len(self.p.R_ant) else 1e6
-                dV_dt = I_tot / c_ant
-                if getattr(self.toggles, 'enable_rc_circuit_response', True):
-                    v_bias = (
-                        (self.p.V_bias[a_idx] if a_idx < len(self.p.V_bias) else 0.0)
-                        if getattr(self.toggles, 'enable_antenna_bias_voltage', True)
-                        else 0.0
-                    )
-                    dV_dt -= (self.voltage_ant[a_idx, step - 1] - v_bias) / (r_ant * c_ant)
+                rc_enabled = getattr(self.toggles, 'enable_rc_circuit_response', True)
+                v_bias = (
+                    (self.p.V_bias[a_idx] if a_idx < len(self.p.V_bias) else 0.0)
+                    if getattr(self.toggles, 'enable_antenna_bias_voltage', True)
+                    else 0.0
+                )
+                solver_type = str(getattr(self.toggles, 'circuit_solver', getattr(self.p, 'circuit_solver', 'rk4'))).lower()
 
-                self.voltage_ant[a_idx, step] = self.voltage_ant[a_idx, step - 1] + dV_dt * self.p.dt
+                if solver_type == 'euler':
+                    dV_dt = I_tot / c_ant if c_ant > 0.0 else 0.0
+                    if rc_enabled and r_ant > 0.0 and c_ant > 0.0:
+                        dV_dt -= (self.voltage_ant[a_idx, step - 1] - v_bias) / (r_ant * c_ant)
+                    self.voltage_ant[a_idx, step] = self.voltage_ant[a_idx, step - 1] + dV_dt * dt
+                else:
+                    # Default: 4th-order Runge-Kutta (RK4) with linear current interpolation
+                    I_prev = self.tot_curr[a_idx, step - 1]
+                    I_curr = I_tot
+                    I_mid = 0.5 * (I_prev + I_curr)
+                    inv_tau = (1.0 / (r_ant * c_ant)) if (rc_enabled and r_ant > 0.0 and c_ant > 0.0) else 0.0
+                    inv_c = (1.0 / c_ant) if c_ant > 0.0 else 0.0
+
+                    V_prev = self.voltage_ant[a_idx, step - 1]
+                    k1 = (I_prev * inv_c) - inv_tau * (V_prev - v_bias)
+                    k2 = (I_mid * inv_c)  - inv_tau * (V_prev + 0.5 * dt * k1 - v_bias)
+                    k3 = (I_mid * inv_c)  - inv_tau * (V_prev + 0.5 * dt * k2 - v_bias)
+                    k4 = (I_curr * inv_c) - inv_tau * (V_prev + dt * k3 - v_bias)
+
+                    self.voltage_ant[a_idx, step] = V_prev + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
 
     def build_smoothed_signals(self) -> Dict[str, List[np.ndarray]]:
         """Constructs boxcar-smoothed signals for induced, collected, and total current."""

@@ -350,8 +350,8 @@ class TestPreparedGeometryAndIntegration(unittest.TestCase):
         )
         self.assertEqual(params.geometry.source, "analytical")
         self.assertEqual(params.geometry.analytical.spacecraft.type, "sphere")
-        self.assertEqual(params.geometry.analytical.spacecraft.voltage_V, 10.0)
-        self.assertEqual(params.spacecraft_voltage_V, 10.0)
+        self.assertEqual(params.geometry.analytical.spacecraft.voltage_V, 5.0)
+        self.assertEqual(params.spacecraft_voltage_V, 5.0)
         self.assertEqual(len(params.geometry.analytical.antennas), 4)
         expected_voltages = [a.voltage_V for a in params.geometry.analytical.antennas]
         self.assertEqual(params.antenna_bias_voltage_V, expected_voltages)

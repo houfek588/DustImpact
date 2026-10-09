@@ -26,11 +26,13 @@ class ParticleEnsemble:
         spacecraft_mask_3d: np.ndarray,
         num_antennas: int,
         antenna_geometries: Optional[List[Any]] = None,
+        toggles: Optional[Any] = None,
     ):
         self.p = params
         self.spacecraft_mask_3d = spacecraft_mask_3d
         self.num_antennas = num_antennas
         self.antenna_geometries = antenna_geometries
+        self.toggles = toggles
 
         v_th_e = np.sqrt(2 * e * self.p.T_dust_eV / m_e)
         v_th_i = np.sqrt(2 * e * self.p.T_dust_eV / self.p.m_i)
@@ -171,10 +173,11 @@ class ParticleEnsemble:
         Ewy_list: List[np.ndarray],
         Ewz_list: List[np.ndarray],
         enable_collection: bool = True,
+        boundary_mode: Optional[str] = None,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Advances a single species by dt, handles CCD collisions with spacecraft,
-        boundary escape, antenna collection, and computes induced / collected currents.
+        boundary escape / periodic wrapping, antenna collection, and computes induced / collected currents.
         """
         col_currs = np.zeros(self.num_antennas)
         ind_currs = np.zeros(self.num_antennas)
@@ -267,12 +270,25 @@ class ParticleEnsemble:
                     vz=vz[new_active], Ewz=Ewz
                 )
 
-        new_active[new_active & (x <= -self.p.L_x)] = False
-        new_active[new_active & (x >= self.p.L_x)] = False
-        new_active[new_active & (y <= -self.p.L_y)] = False
-        new_active[new_active & (y >= self.p.L_y)] = False
-        new_active[new_active & (z <= -self.p.L_z)] = False
-        new_active[new_active & (z >= self.p.L_z)] = False
+        bnd_mode = str(
+            boundary_mode
+            or getattr(self.toggles, 'particle_boundary_mode', getattr(self.p, 'particle_boundary_mode', 'open'))
+        ).lower()
+
+        if bnd_mode == "periodic":
+            Lx, Ly, Lz = self.p.L_x, self.p.L_y, self.p.L_z
+            act_idx = np.where(new_active)[0]
+            if len(act_idx) > 0:
+                x[act_idx] = (x[act_idx] + Lx) % (2.0 * Lx) - Lx
+                y[act_idx] = (y[act_idx] + Ly) % (2.0 * Ly) - Ly
+                z[act_idx] = (z[act_idx] + Lz) % (2.0 * Lz) - Lz
+        else:
+            new_active[new_active & (x <= -self.p.L_x)] = False
+            new_active[new_active & (x >= self.p.L_x)] = False
+            new_active[new_active & (y <= -self.p.L_y)] = False
+            new_active[new_active & (y >= self.p.L_y)] = False
+            new_active[new_active & (z <= -self.p.L_z)] = False
+            new_active[new_active & (z >= self.p.L_z)] = False
 
         active[:] = new_active
         return col_currs, ind_currs

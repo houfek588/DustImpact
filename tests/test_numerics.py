@@ -112,6 +112,96 @@ class TestNumerics(unittest.TestCase):
 
         np.testing.assert_allclose(interpolated, expected, rtol=1e-10)
 
+    def test_rk4_circuit_exponential_response(self):
+        """Test that RK4 circuit integrator matches analytical solution of RC ODE."""
+        from dust_impact.solver.collector import AntennaCircuitCollector
+        from dust_impact.solver.params import SimulationParams3D, SimulationToggles3D
+
+        dt = 1e-9
+        steps = 500
+        R = 50e3
+        C = 2e-12
+        tau = R * C
+        I0 = 1e-9
+
+        params = SimulationParams3D(
+            time_step_s=dt,
+            num_time_steps=steps,
+            grid_nodes_x=10,
+            grid_nodes_y=10,
+            grid_nodes_z=10
+        )
+        params.antenna_capacitance_F = [C]
+        params.antenna_resistance_Ohm = [R]
+        params.antenna_bias_voltage_V = [0.0]
+
+        toggles = SimulationToggles3D(
+            enable_rc_circuit_response=True,
+            enable_antenna_bias_voltage=True,
+            circuit_solver="rk4"
+        )
+
+        collector = AntennaCircuitCollector(params, toggles, num_antennas=1)
+        for s in range(steps):
+            collector.record_step_currents(
+                s,
+                col_e=np.array([I0]),
+                col_i=np.array([0.0]),
+                ind_e=np.array([0.0]),
+                ind_i=np.array([0.0])
+            )
+            collector.update_circuit(s)
+
+        t_final = (steps - 1) * dt
+        v_exact = R * I0 * (1.0 - np.exp(-t_final / tau))
+        v_sim = collector.voltage_ant[0, steps - 1]
+
+        # RK4 should be extremely accurate
+        self.assertAlmostEqual(v_sim, v_exact, places=8)
+
+    def test_rk4_pure_capacitive_charging(self):
+        """With RC circuit response disabled, V(t) should equal Q(t) / C (Simpson rule)."""
+        from dust_impact.solver.collector import AntennaCircuitCollector
+        from dust_impact.solver.params import SimulationParams3D, SimulationToggles3D
+
+        dt = 2e-9
+        steps = 50
+        C = 1e-11
+        I0 = 2e-9
+
+        params = SimulationParams3D(
+            time_step_s=dt,
+            num_time_steps=steps,
+            grid_nodes_x=10,
+            grid_nodes_y=10,
+            grid_nodes_z=10
+        )
+        params.antenna_capacitance_F = [C]
+        params.antenna_resistance_Ohm = [1e6]
+        params.antenna_bias_voltage_V = [0.0]
+
+        toggles = SimulationToggles3D(
+            enable_rc_circuit_response=False,
+            enable_antenna_bias_voltage=False,
+            circuit_solver="rk4"
+        )
+
+        collector = AntennaCircuitCollector(params, toggles, num_antennas=1)
+        for s in range(steps):
+            collector.record_step_currents(
+                s,
+                col_e=np.array([I0]),
+                col_i=np.array([0.0]),
+                ind_e=np.array([0.0]),
+                ind_i=np.array([0.0])
+            )
+            collector.update_circuit(s)
+
+        t_final = (steps - 1) * dt
+        v_expected = (I0 * t_final) / C
+        v_sim = collector.voltage_ant[0, steps - 1]
+        self.assertAlmostEqual(v_sim, v_expected, places=12)
+
 
 if __name__ == "__main__":
     unittest.main()

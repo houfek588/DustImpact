@@ -166,7 +166,7 @@ def animate_particles_3d(
         sc_y = Y[spacecraft_mask]
         sc_z = Z[spacecraft_mask]
         if len(sc_x) > 0:
-            ax.scatter(sc_x, sc_y, sc_z, color='#7f7f7f', alpha=0.12, s=8, marker='s', label='Spacecraft Structure')
+            ax.scatter(sc_x, sc_y, sc_z, color='#000000', alpha=0.12, s=8, marker='s', label='Spacecraft Structure')
 
     # Render antennas as distinct colored wireframes
     if antenna_masks is not None:
