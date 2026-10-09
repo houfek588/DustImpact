@@ -18,6 +18,7 @@ class BaseSimulationToggles:
     enable_antenna_bias_voltage: bool = True
     circuit_solver: str = "rk4"
     particle_boundary_mode: str = "open"
+    particle_spacecraft_mode: str = "absorb"
 
 
 @dataclass

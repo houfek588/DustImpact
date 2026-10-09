@@ -474,4 +474,5 @@ def build_analytical_simulation_geometry(params: Any, analytical_config: Any):
         impact_pos=impact_pos,
         impact_normal=impact_normal,
         antenna_geometries=ant_geoms,
+        spacecraft_geometry=sc_part,
     )

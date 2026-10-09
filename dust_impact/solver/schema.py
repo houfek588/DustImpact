@@ -264,6 +264,10 @@ class TogglesSchema(StrictBaseModel):
         "open",
         description="Boundary condition for macroparticles at domain borders ('open' or 'periodic')"
     )
+    particle_spacecraft_mode: Literal["absorb", "reflect"] = Field(
+        "absorb",
+        description="Particle interaction mode on spacecraft surface ('absorb' or 'reflect')"
+    )
 
 
 class ImpactSchema(StrictBaseModel):

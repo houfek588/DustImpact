@@ -27,12 +27,14 @@ class ParticleEnsemble:
         num_antennas: int,
         antenna_geometries: Optional[List[Any]] = None,
         toggles: Optional[Any] = None,
+        spacecraft_geometry: Optional[Any] = None,
     ):
         self.p = params
         self.spacecraft_mask_3d = spacecraft_mask_3d
         self.num_antennas = num_antennas
         self.antenna_geometries = antenna_geometries
         self.toggles = toggles
+        self.spacecraft_geometry = spacecraft_geometry
 
         v_th_e = np.sqrt(2 * e * self.p.T_dust_eV / m_e)
         v_th_i = np.sqrt(2 * e * self.p.T_dust_eV / self.p.m_i)
@@ -154,6 +156,114 @@ class ParticleEnsemble:
             self.cloud_injected = True
         return self.cloud_injected
 
+    def _reflect_particles_from_spacecraft(
+        self,
+        x: np.ndarray,
+        y: np.ndarray,
+        z: np.ndarray,
+        vx: np.ndarray,
+        vy: np.ndarray,
+        vz: np.ndarray,
+        hit_indices: np.ndarray,
+        x_old: np.ndarray,
+        y_old: np.ndarray,
+        z_old: np.ndarray,
+    ) -> None:
+        """
+        Specular elastic reflection of particles colliding with the spacecraft body.
+        Preserves kinetic energy exactly and ensures position is pushed outside the surface.
+        """
+        if len(hit_indices) == 0:
+            return
+
+        sc_geom = self.spacecraft_geometry
+        if sc_geom is None and hasattr(self.p, 'geometry'):
+            geom_cfg = getattr(self.p, 'geometry', None)
+            if getattr(geom_cfg, 'source', None) == 'analytical':
+                sc_geom = getattr(getattr(geom_cfg, 'analytical', None), 'spacecraft', None)
+
+        geom_type = str(getattr(sc_geom, 'type', '')).lower() if sc_geom is not None else ''
+        eps = 0.05 * min(self.p.dx, self.p.dy, self.p.dz)
+
+        if geom_type == 'sphere':
+            center = np.array(getattr(sc_geom, 'center', [0.0, 0.0, 0.0]), dtype=float)
+            radius = float(getattr(sc_geom, 'radius', 1.0))
+
+            px = x[hit_indices] - center[0]
+            py = y[hit_indices] - center[1]
+            pz = z[hit_indices] - center[2]
+            dist = np.sqrt(px**2 + py**2 + pz**2)
+
+            ox = x_old - center[0]
+            oy = y_old - center[1]
+            oz = z_old - center[2]
+            dist_old = np.sqrt(ox**2 + oy**2 + oz**2)
+
+            nx = np.where(dist > 1e-9, px / np.maximum(dist, 1e-12), np.where(dist_old > 1e-9, ox / np.maximum(dist_old, 1e-12), 1.0))
+            ny = np.where(dist > 1e-9, py / np.maximum(dist, 1e-12), np.where(dist_old > 1e-9, oy / np.maximum(dist_old, 1e-12), 0.0))
+            nz = np.where(dist > 1e-9, pz / np.maximum(dist, 1e-12), np.where(dist_old > 1e-9, oz / np.maximum(dist_old, 1e-12), 0.0))
+
+            # Reposition particle strictly outside sphere surface
+            delta = np.maximum(0.0, radius - dist)
+            new_dist = radius + np.maximum(delta, eps)
+            x[hit_indices] = center[0] + nx * new_dist
+            y[hit_indices] = center[1] + ny * new_dist
+            z[hit_indices] = center[2] + nz * new_dist
+
+            # Specular velocity reflection: v' = v - 2(v·n)n
+            vn = vx[hit_indices] * nx + vy[hit_indices] * ny + vz[hit_indices] * nz
+            inward = vn < 0
+            vx[hit_indices] = np.where(inward, vx[hit_indices] - 2.0 * vn * nx, vx[hit_indices])
+            vy[hit_indices] = np.where(inward, vy[hit_indices] - 2.0 * vn * ny, vy[hit_indices])
+            vz[hit_indices] = np.where(inward, vz[hit_indices] - 2.0 * vn * nz, vz[hit_indices])
+
+        elif geom_type in ('box', 'cube'):
+            center = np.array(getattr(sc_geom, 'center', [0.0, 0.0, 0.0]), dtype=float)
+            dims = getattr(sc_geom, 'dimensions', None)
+            if dims is None and hasattr(sc_geom, 'side_length') and sc_geom.side_length:
+                dims = [sc_geom.side_length] * 3
+            elif dims is None:
+                dims = [1.0, 1.0, 1.0]
+            dims = np.array(dims, dtype=float)
+            half_dims = dims * 0.5
+
+            px = x[hit_indices] - center[0]
+            py = y[hit_indices] - center[1]
+            pz = z[hit_indices] - center[2]
+
+            rx = np.abs(px) / (half_dims[0] + 1e-12)
+            ry = np.abs(py) / (half_dims[1] + 1e-12)
+            rz = np.abs(pz) / (half_dims[2] + 1e-12)
+
+            for i_idx, k in enumerate(hit_indices):
+                r_vals = [rx[i_idx], ry[i_idx], rz[i_idx]]
+                axis = int(np.argmax(r_vals))
+                if axis == 0:
+                    sign = 1.0 if px[i_idx] >= 0 else -1.0
+                    x[k] = center[0] + sign * (half_dims[0] + eps)
+                    if vx[k] * sign < 0:
+                        vx[k] = -vx[k]
+                elif axis == 1:
+                    sign = 1.0 if py[i_idx] >= 0 else -1.0
+                    y[k] = center[1] + sign * (half_dims[1] + eps)
+                    if vy[k] * sign < 0:
+                        vy[k] = -vy[k]
+                else:
+                    sign = 1.0 if pz[i_idx] >= 0 else -1.0
+                    z[k] = center[2] + sign * (half_dims[2] + eps)
+                    if vz[k] * sign < 0:
+                        vz[k] = -vz[k]
+
+        else:
+            # Fallback for arbitrary voxel / SPIS mesh: restore previous valid position outside body
+            # and reverse velocity vector
+            x[hit_indices] = x_old
+            y[hit_indices] = y_old
+            z[hit_indices] = z_old
+            vx[hit_indices] = -vx[hit_indices]
+            vy[hit_indices] = -vy[hit_indices]
+            vz[hit_indices] = -vz[hit_indices]
+
     def push_species(
         self,
         x: np.ndarray,
@@ -223,7 +333,19 @@ class ParticleEnsemble:
         hit_sc = self.spacecraft_mask_3d[idx_x_new, idx_y_new, idx_z_new] | self.spacecraft_mask_3d[idx_x_mid, idx_y_mid, idx_z_mid]
         global_active_indices = np.where(new_active)[0]
         destroyed_by_sc = global_active_indices[hit_sc]
-        new_active[destroyed_by_sc] = False
+
+        sc_mode = str(
+            getattr(self.toggles, 'particle_spacecraft_mode', getattr(self.p, 'particle_spacecraft_mode', 'absorb'))
+        ).lower()
+
+        if sc_mode == "reflect":
+            if np.any(hit_sc):
+                self._reflect_particles_from_spacecraft(
+                    x, y, z, vx, vy, vz, destroyed_by_sc,
+                    x_act[hit_sc], y_act[hit_sc], z_act[hit_sc]
+                )
+        else:
+            new_active[destroyed_by_sc] = False
 
         for a_idx in range(self.num_antennas):
             ant_geom = (

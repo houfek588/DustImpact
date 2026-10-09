@@ -6,7 +6,7 @@
             "spacecraft": {
                 "type": "sphere",
                 "center": [0.0, 0.0, 0.0],
-                "radius": 1.0,
+                "radius": 0.3,
                 "voltage_V": 10.0
             },
             "antennas": [
@@ -19,12 +19,14 @@
         "enable_plasma_self_field": true,
         "enable_antenna_particle_collection": true,
         "enable_rc_circuit_response": true,
-        "enable_antenna_bias_voltage": true
+        "enable_antenna_bias_voltage": true,
+        "particle_boundary_mode": "periodic",
+        "particle_spacecraft_mode": "reflect"
     },
     "physics": {
         "ion_mass_amu": 27.0,
-        "impact_cloud_temperature_eV": 2.0,
-        "solar_wind_electron_temp_eV": 15.0,
+        "impact_cloud_temperature_eV": 10.0,
+        "solar_wind_electron_temp_eV": 10.0,
         "solar_wind_density_m3": 100000000.0,
         "total_impact_charge_C": 5e-11,
         "plasma_injection_mode": "homogeneous",
@@ -35,7 +37,7 @@
         }
     },
     "numeric": {
-        "num_macroparticles": 5000,
+        "num_macroparticles": 10000,
         "time_step_s": 2e-09,
         "num_time_steps": 10000,
         "domain_half_length_m": [5.0, 5.0, 5.0],

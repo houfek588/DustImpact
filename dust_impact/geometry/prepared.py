@@ -64,6 +64,7 @@ class PreparedGeometry3D:
     impact_pos: Optional[List[float]] = None
     impact_normal: Optional[List[float]] = None
     antenna_geometries: Optional[List[Any]] = None
+    spacecraft_geometry: Optional[Any] = None
 
     @property
     def num_antennas(self) -> int:
@@ -385,5 +386,7 @@ def build_simulation_geometry(params: Any) -> PreparedGeometry3D:
         antenna_masks_3d=antenna_masks_3d,
         spacecraft_mask_3d=spacecraft_mask_3d,
         impact_pos=impact_pos,
-        impact_normal=impact_normal
+        impact_normal=impact_normal,
+        antenna_geometries=getattr(params, 'antenna_geometries', None),
+        spacecraft_geometry=getattr(getattr(getattr(params, 'geometry', None), 'analytical', None), 'spacecraft', None)
     )

@@ -44,6 +44,7 @@ class DustImpactSimulation3D:
         spacecraft_mask_3d=None,
     ):
         antenna_geometries = None
+        spacecraft_geometry = None
         if hasattr(V_bg, 'antenna_masks_3d') and hasattr(V_bg, 'spacecraft_mask_3d'):
             geom = V_bg
             V_bg = geom.V_bg
@@ -53,11 +54,15 @@ class DustImpactSimulation3D:
             antenna_masks_3d = geom.antenna_masks_3d
             spacecraft_mask_3d = geom.spacecraft_mask_3d
             antenna_geometries = getattr(geom, 'antenna_geometries', None)
+            spacecraft_geometry = getattr(geom, 'spacecraft_geometry', None)
 
-        if antenna_geometries is None and hasattr(params, 'geometry'):
+        if hasattr(params, 'geometry'):
             geom_cfg = params.geometry
             if getattr(geom_cfg, 'source', None) == 'analytical':
-                antenna_geometries = getattr(getattr(geom_cfg, 'analytical', None), 'antennas', None)
+                if antenna_geometries is None:
+                    antenna_geometries = getattr(getattr(geom_cfg, 'analytical', None), 'antennas', None)
+                if spacecraft_geometry is None:
+                    spacecraft_geometry = getattr(getattr(geom_cfg, 'analytical', None), 'spacecraft', None)
 
         self.p = params
         self.toggles = toggles
@@ -76,7 +81,8 @@ class DustImpactSimulation3D:
         # Subsystems
         self.particles = ParticleEnsemble(
             params, spacecraft_mask_3d, self.num_antennas,
-            antenna_geometries=antenna_geometries, toggles=toggles
+            antenna_geometries=antenna_geometries, toggles=toggles,
+            spacecraft_geometry=spacecraft_geometry
         )
         self.field_solver = FieldSolver3D(
             params, toggles, V_bg, Ex_bg, Ey_bg, Ez_bg,
@@ -312,7 +318,8 @@ class DustImpactSimulation3D:
             'v_th_e': float(self.p.v_th_e),
             'v_th_i': float(self.p.v_th_i),
             'plasma_injection_mode': getattr(self.p, 'plasma_injection_mode', 'point_cloud'),
-            'particle_boundary_mode': getattr(self.toggles, 'particle_boundary_mode', 'open')
+            'particle_boundary_mode': getattr(self.toggles, 'particle_boundary_mode', 'open'),
+            'particle_spacecraft_mode': getattr(self.toggles, 'particle_spacecraft_mode', 'absorb')
         }
 
     def _build_results_dict(self) -> Dict[str, Any]:

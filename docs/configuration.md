@@ -158,6 +158,7 @@ Booleovské přepínače, které umožňují izolovat jednotlivé fyzikální me
 | `enable_antenna_bias_voltage` | `bool` | `true` | Inicializace počátečního předpětí antén z konfigurace v čase $t = 0$. |
 | `circuit_solver` | `string` | `"rk4"` | Numerická metoda integrace RC obvodu: `"rk4"` (Runge-Kutta 4. řádu s lineární interpolací proudu, výchozí) nebo `"euler"` (Forward Euler 1. řádu). |
 | `particle_boundary_mode` | `string` | `"open"` | Okrajová podmínka pro makročástice na vnějších hranicích simulačního boxu $[-L, L]$: `"open"` (částice po opuštění domény trvale zaniknou) nebo `"periodic"` (částice cyklicky vstupují z protilehlé stěny boxu při zachování rychlosti, ideální pro rovnovážné ambientní plazma). |
+| `particle_spacecraft_mode` | `string` | `"absorb"` | Režim interakce makročástic s povrchem tělesa sondy: `"absorb"` (částice jsou při nárazu na těleso trvale pohlceny, výchozí) nebo `"reflect"` (elastický zrcadlový odraz s obrácením normálové rychlosti a korekcí polohy vně tělesa, ideální pro rovnovážnou Debyeovu sféru). |
 
 ---
 
