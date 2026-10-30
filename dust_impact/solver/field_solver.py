@@ -62,69 +62,131 @@ class FieldSolver3D:
 
         self.amg_solver = None
         self.lu_solver = None
+        # Diagnostics of the most recent Poisson solve
+        self.last_poisson_residual = 0.0
+        self.last_poisson_iterations = 0
         self._build_poisson_solver()
 
-    def _get_1d_idx(self, i: int, j: int, k: int) -> int:
-        return i * (self.p.Ny * self.p.Nz) + j * self.p.Nz + k
+    # Relative residual ||b - A V|| / ||b|| required from the iterative Poisson solve, and its
+    # iteration cap; with a warm start from the previous step a few CG iterations usually suffice.
+    POISSON_RTOL = 1e-8
+    POISSON_MAXITER = 200
 
     def _build_poisson_solver(self) -> None:
+        """
+        Assembles the 7-point negative Laplacian restricted to the free (non-Dirichlet) nodes.
+
+        The self-field satisfies V = 0 on the outer boundary and on all conductors (spacecraft and
+        antennas). Eliminating these Dirichlet nodes (rather than replacing their rows by identity
+        rows) keeps the reduced matrix A_ff symmetric positive definite, which is required by the
+        AMG-preconditioned conjugate gradient solver. Assembly is fully vectorised via Kronecker sums.
+        """
         Nx, Ny, Nz = self.p.Nx, self.p.Ny, self.p.Nz
         N_tot = Nx * Ny * Nz
-
-        dx2, dy2, dz2 = self.p.dx ** 2, self.p.dy ** 2, self.p.dz ** 2
-        A_self = sp.lil_matrix((N_tot, N_tot))
 
         print(f"=== Inicializace Poissonova řešiče (3D) ===")
         print(f"  -> Celkový počet uzlů: {N_tot}")
 
-        for i in range(Nx):
-            for j in range(Ny):
-                for k in range(Nz):
-                    idx = self._get_1d_idx(i, j, k)
-                    is_boundary = (i == 0) or (i == Nx - 1) or (j == 0) or (j == Ny - 1) or (k == 0) or (k == Nz - 1)
+        def second_difference(n: int, h: float) -> sp.csr_matrix:
+            ones = np.ones(n)
+            return sp.diags([-ones[:-1], 2.0 * ones, -ones[:-1]], [-1, 0, 1], format='csr') / h ** 2
 
-                    if is_boundary or self.combined_mask[i, j, k]:
-                        A_self[idx, idx] = 1.0
-                    else:
-                        diag_val = 2 / dx2 + 2 / dy2 + 2 / dz2
-                        A_self[idx, idx] = diag_val
-                        A_self[idx, self._get_1d_idx(i - 1, j, k)] = -1 / dx2
-                        A_self[idx, self._get_1d_idx(i + 1, j, k)] = -1 / dx2
-                        A_self[idx, self._get_1d_idx(i, j - 1, k)] = -1 / dy2
-                        A_self[idx, self._get_1d_idx(i, j + 1, k)] = -1 / dy2
-                        A_self[idx, self._get_1d_idx(i, j, k - 1)] = -1 / dz2
-                        A_self[idx, self._get_1d_idx(i, j, k + 1)] = -1 / dz2
+        # Row-major (C-order) flattening: index = i * Ny * Nz + j * Nz + k, hence x is the outermost factor
+        A_full = sp.kronsum(
+            sp.kronsum(second_difference(Nz, self.p.dz), second_difference(Ny, self.p.dy)),
+            second_difference(Nx, self.p.dx),
+            format='csr',
+        )
 
-        A_csr = A_self.tocsr()
+        dirichlet = np.zeros((Nx, Ny, Nz), dtype=bool)
+        dirichlet[[0, -1], :, :] = True
+        dirichlet[:, [0, -1], :] = True
+        dirichlet[:, :, [0, -1]] = True
+        dirichlet |= np.asarray(self.combined_mask, dtype=bool)
+        self.free_idx = np.flatnonzero(~dirichlet.ravel())
+
+        A_free = A_full[self.free_idx][:, self.free_idx].tocsr()
+        self.A_free = A_free
+        print(f"  -> Volné uzly: {len(self.free_idx)} (Dirichlet: {N_tot - len(self.free_idx)})")
+
         if HAS_PYAMG:
             print("  -> Stavím AMG hierarchii (PyAMG)...")
-            self.amg_solver = build_pyamg_solver(A_csr)
+            self.amg_solver = build_pyamg_solver(A_free)
         else:
             print("  -> PyAMG nenalezen, používám LU solver (SciPy)...")
-            self.lu_solver = spla.factorized(A_self.tocsc())
+            self.lu_solver = spla.factorized(A_free.tocsc())
+
+    def _background_enabled(self) -> bool:
+        return bool(getattr(self.toggles, 'enable_spis_background_field', True))
+
+    def antenna_potential_perturbation(self, voltage_ant: np.ndarray, step: int) -> np.ndarray:
+        """
+        Returns dV_a = V_a(t) - V_a,ref for each antenna, i.e. the antenna potential that is not
+        already contained in the static background V_bg_base.
+
+        V_bg_base holds every antenna at its reference potential p.V_bias (configured bias or SPIS
+        equilibrium). When the static background is disabled, the reference is 0 V. Combined with the
+        circuit target (V_bias if enable_antenna_bias_voltage else 0 V) this gives consistent fields
+        for all four toggle combinations, e.g. background on + bias off removes the bias from V_bg.
+
+        Parameters:
+            voltage_ant: Antenna voltage history, shape (num_antennas, steps) [V].
+            step: Current step; the voltage of the previous step is used (explicit coupling).
+
+        Returns:
+            np.ndarray: Potential perturbation per antenna [V].
+        """
+        col = max(0, step - 1)
+        bg_on = self._background_enabled()
+        dV = np.zeros(self.num_antennas)
+        for a_idx in range(self.num_antennas):
+            V_ref = (self.p.V_bias[a_idx] if a_idx < len(self.p.V_bias) else 0.0) if bg_on else 0.0
+            dV[a_idx] = voltage_ant[a_idx, col] - V_ref
+        return dV
 
     def update_background_fields(self, voltage_ant: np.ndarray, step: int) -> None:
-        """Superpose antenna dynamic bias into Cartesian background electric field."""
-        Ex_tot = self.Ex_bg_base.copy()
-        Ey_tot = self.Ey_bg_base.copy()
-        Ez_tot = self.Ez_bg_base.copy()
+        """
+        Sets the external electric field to the static background (if enabled) plus the field of
+        the antenna potential perturbations, E = E_bg_base + sum_a dV_a * E_w,a.
+        """
+        if self._background_enabled():
+            Ex_tot = self.Ex_bg_base.copy()
+            Ey_tot = self.Ey_bg_base.copy()
+            Ez_tot = self.Ez_bg_base.copy()
+        else:
+            Ex_tot = np.zeros_like(self.Ex_bg_base)
+            Ey_tot = np.zeros_like(self.Ey_bg_base)
+            Ez_tot = np.zeros_like(self.Ez_bg_base)
 
-        for a_idx in range(self.num_antennas):
-            V_curr = voltage_ant[a_idx, max(0, step - 1)] if step > 0 else voltage_ant[a_idx, 0]
-            V_bias = self.p.V_bias[a_idx] if a_idx < len(self.p.V_bias) else 0.0
-            dV = V_curr - V_bias
-
+        dV_all = self.antenna_potential_perturbation(voltage_ant, step)
+        for a_idx, dV in enumerate(dV_all):
             if abs(dV) > 1e-6:
                 Ex_tot += dV * self.Ewx_list[a_idx]
                 Ey_tot += dV * self.Ewy_list[a_idx]
                 Ez_tot += dV * self.Ewz_list[a_idx]
 
-        if not getattr(self.toggles, 'enable_spis_background_field', True):
-            Ex_tot.fill(0.0)
-            Ey_tot.fill(0.0)
-            Ez_tot.fill(0.0)
-
         self.Ex_bg, self.Ey_bg, self.Ez_bg = Ex_tot, Ey_tot, Ez_tot
+
+    def background_potential(self, voltage_ant: np.ndarray, step: int, Vw_list: Optional[List[np.ndarray]]) -> np.ndarray:
+        """
+        External potential consistent with update_background_fields:
+        V = V_bg_base (if enabled) + sum_a dV_a * Vw_a.
+
+        Parameters:
+            voltage_ant: Antenna voltage history, shape (num_antennas, steps) [V].
+            step: Current step.
+            Vw_list: Weighting potentials per antenna; if None, the perturbation is omitted.
+
+        Returns:
+            np.ndarray: External potential on the grid [V].
+        """
+        V = self.V_bg_base.copy() if self._background_enabled() else np.zeros_like(self.V_bg_base)
+        if Vw_list is not None:
+            dV_all = self.antenna_potential_perturbation(voltage_ant, step)
+            for a_idx, dV in enumerate(dV_all):
+                if abs(dV) > 1e-6 and a_idx < len(Vw_list):
+                    V += dV * Vw_list[a_idx]
+        return V
 
     def solve_poisson(self, ensemble) -> None:
         """
@@ -151,26 +213,33 @@ class FieldSolver3D:
         rho_grid = (q_i_grid - q_e_grid) / dV
         self.rho_grid = rho_grid
 
-        # -Laplacian(V) = rho / eps_0 -> A * V = b where A is SPD
-        b_3d = rho_grid / eps_0
-        b_3d[self.combined_mask] = 0.0
-        b_3d[0, :, :] = 0.0
-        b_3d[-1, :, :] = 0.0
-        b_3d[:, 0, :] = 0.0
-        b_3d[:, -1, :] = 0.0
-        b_3d[:, :, 0] = 0.0
-        b_3d[:, :, -1] = 0.0
-        b_self = np.nan_to_num(b_3d.ravel(), nan=0.0, posinf=0.0, neginf=0.0)
+        # -Laplacian(V) = rho / eps_0 on the free nodes, V = 0 on boundary and conductors: A_ff V_f = b_f
+        b_free = np.nan_to_num((rho_grid / eps_0).ravel()[self.free_idx], nan=0.0, posinf=0.0, neginf=0.0)
+        V_self_1d = np.zeros(Nx * Ny * Nz, dtype=np.float64)
 
-        if HAS_PYAMG and self.amg_solver is not None:
-            x_init = np.nan_to_num(self.V_self_grid.ravel(), nan=0.0, posinf=0.0, neginf=0.0)
-            try:
-                V_self_1d = self.amg_solver.solve(b_self, x0=x_init, tol=1e-4, maxiter=20, accel='cg')
-            except Exception:
-                V_self_1d = self.amg_solver.solve(b_self, tol=1e-3, maxiter=20, accel='cg')
-            V_self_1d = np.nan_to_num(V_self_1d, nan=0.0, posinf=0.0, neginf=0.0)
+        b_norm = np.linalg.norm(b_free)
+        if b_norm == 0.0:
+            self.last_poisson_residual, self.last_poisson_iterations = 0.0, 0
+        elif HAS_PYAMG and self.amg_solver is not None:
+            # Warm start from the previous step; the solution changes little between PIC steps
+            x_init = self.V_self_grid.ravel()[self.free_idx]
+            residuals: List[float] = []
+            V_free = self.amg_solver.solve(
+                b_free, x0=x_init, tol=self.POISSON_RTOL, maxiter=self.POISSON_MAXITER,
+                accel='cg', residuals=residuals,
+            )
+            rel_res = float(np.linalg.norm(b_free - self.A_free @ V_free) / b_norm)
+            self.last_poisson_residual = rel_res
+            self.last_poisson_iterations = max(0, len(residuals) - 1)
+            if not np.isfinite(rel_res) or rel_res > 100.0 * self.POISSON_RTOL:
+                raise RuntimeError(
+                    f"Poisson solver did not converge: relative residual {rel_res:.3e} after "
+                    f"{self.last_poisson_iterations} iterations (required {self.POISSON_RTOL:.1e})."
+                )
+            V_self_1d[self.free_idx] = V_free
         else:
-            V_self_1d = self.lu_solver(b_self)
+            V_self_1d[self.free_idx] = self.lu_solver(b_free)
+            self.last_poisson_residual, self.last_poisson_iterations = 0.0, 0
 
         self.V_self_grid = V_self_1d.reshape((Nx, Ny, Nz))
         self.Ex_self, self.Ey_self, self.Ez_self = np.gradient(-self.V_self_grid, self.p.dx, self.p.dy, self.p.dz)

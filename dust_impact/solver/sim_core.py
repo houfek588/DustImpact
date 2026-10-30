@@ -242,8 +242,16 @@ class DustImpactSimulation3D:
             Vw_list=self.Vw_grids
         )
 
-    def _save_history(self, current_time: float, stream_to_disk: bool = False) -> Dict[str, np.ndarray]:
-        V_cur = (self.field_solver.V_bg_base + self.field_solver.V_self_grid).copy()
+    def _save_history(self, current_time: float, stream_to_disk: bool = False, step: Optional[int] = None) -> Dict[str, np.ndarray]:
+        """
+        Stores a history frame. The saved potential is the full potential seen by the particles:
+        external background including antenna potential perturbations plus the plasma self-field.
+        """
+        if step is None:
+            step = int(round(current_time / self.p.dt))
+        # step + 1 selects the antenna voltage reached at the end of this step
+        V_ext = self.field_solver.background_potential(self.collector.voltage_ant, step + 1, self.Vw_grids)
+        V_cur = V_ext + self.field_solver.V_self_grid
         rho_cur = self.field_solver.rho_grid.copy()
         stride = self.p.plot_stride
 
@@ -344,9 +352,9 @@ class DustImpactSimulation3D:
         # 1. Injection check
         self.particles.inject_if_time(step_idx, self.p.dt, self.p.t_delay)
 
-        # 2. Update background fields from antenna dynamic voltages
-        if step_idx > 0:
-            self.field_solver.update_background_fields(self.collector.voltage_ant, step_idx)
+        # 2. Update background fields from antenna dynamic voltages (also at step 0, so that
+        #    the initial field already reflects the bias / background toggles)
+        self.field_solver.update_background_fields(self.collector.voltage_ant, step_idx)
 
         # 3. Poisson equation solve
         self.field_solver.solve_poisson(self.particles)
@@ -398,7 +406,7 @@ class DustImpactSimulation3D:
             # History recording & streaming HDF5 export
             if step % self.p.save_interval == 0 or step == self.p.steps - 1:
                 t_cur = step * self.p.dt
-                part_dict = self._save_history(t_cur, stream_to_disk=stream_to_disk)
+                part_dict = self._save_history(t_cur, stream_to_disk=stream_to_disk, step=step)
                 if h5_writer is not None:
                     h5_writer.write_history_frame(
                         t_cur, self.history['V'][-1], self.history['rho'][-1], part_dict

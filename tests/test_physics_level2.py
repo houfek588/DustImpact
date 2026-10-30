@@ -1,20 +1,20 @@
-import unittest
+import contextlib
+import io
 import os
+import unittest
 import numpy as np
-from dust_impact.physics.constants import e, amu, eps_0
+
+from dust_impact.physics.constants import e, m_e, amu
 from dust_impact.common.io import ensure_dir
-from dust_impact.physics.charging import calculate_equilibrium_potential, ENV_EARTH, MAT_ALUMINIUM
-from dust_impact.solver.config_loader import SimulationParams3D, SimulationToggles3D, VTKFilesConfig
+from dust_impact.solver.config_loader import SimulationParams3D, SimulationToggles3D
 from dust_impact.solver.sim_core import DustImpactSimulation3D
-from dust_impact.solver import load_and_interpolate_vtk
 
 
 class TestPhysicsLevel2(unittest.TestCase):
     """
     Level 2 Physical Cross-Verification:
-    Tests consistency between 0D equilibrium charging models, 3D PIC solver,
-    and ambipolar plasma expansion kinetics.
-    Saves validation text reports, static plots, and animated GIF to outputs/tests/
+    Tests collective plasma behaviour of the self-consistent 3D PIC solver.
+    Saves validation text reports to outputs/tests/
     """
 
     @classmethod
@@ -32,157 +32,87 @@ class TestPhysicsLevel2(unittest.TestCase):
             f.write(f"[{status}] {test_name}\n")
             f.write(f"  Details: {details}\n\n")
 
-    def test_0d_to_3d_surface_potential_consistency(self):
+    def _run_expanding_cloud(self, self_field: bool):
         """
-        Verifies that the 0D equilibrium potential calculated by charging.py
-        is consistent with the spacecraft surface boundary condition in 3D VTK mesh.
+        Runs a quasi-neutral Gaussian cloud (sigma = 0.15 m, T_e = 2 eV, cold ions) resolved by the
+        grid (lambda_D ~ 0.03 m, dx ~ 0.08 m) for 3 us and returns the final ensemble.
         """
-        V_eq = calculate_equilibrium_potential(ENV_EARTH, MAT_ALUMINIUM)
-
-        params_3d = SimulationParams3D(
-            Vf=V_eq,
-            grid_nodes_x=8, grid_nodes_y=8, grid_nodes_z=8,
-            vtk_files=VTKFilesConfig(
-                spis_background_potential_file='inputs/spis_V_bg.vtk',
-                spacecraft_weighting_file='inputs/spis_Vw_body.vtk',
-                antenna_weighting_files=['inputs/spis_Vw_ant1.vtk']
-            )
-        )
-        try:
-            V_bg, _, _, _, _, _, _, _, _, sc_mask = load_and_interpolate_vtk(params_3d)
-            sc_potentials = V_bg[sc_mask]
-            mean_sc_voltage = np.mean(sc_potentials) if len(sc_potentials) > 0 else V_eq
-        except Exception:
-            mean_sc_voltage = V_eq
-
-        self.assertGreater(mean_sc_voltage, 0.0)
-        self.assertLess(mean_sc_voltage, 50.0)
-
-        self._log_result(
-            "0D to 3D Surface Potential Boundary Match",
-            "PASS",
-            f"V_eq (0D) = {V_eq:.4f} V | V_sc_mean (3D) = {mean_sc_voltage:.4f} V"
-        )
-
-    def test_ambipolar_expansion_speed_order_of_magnitude(self):
-        """
-        Verifies ambipolar plasma cloud expansion kinetics in 3D:
-        The ion expansion front velocity v_exp should be of the order of the
-        ion acoustic sound speed c_s = sqrt(k_B * T_e / m_i).
-        Saves animated GIF to outputs/tests/physics_level2_ambipolar_expansion_3d.gif
-        """
-        m_i = 1.0 * amu
-        Te_eV = 2.0
-        Te_joule = Te_eV * e
-        c_s = np.sqrt(Te_joule / m_i)  # approx 13.8 km/s
-
-        params_3d = SimulationParams3D(
-            Vf=-5.0,
-            impact_cloud_temperature_eV=Te_eV,
-            ion_mass_amu=1.0,
-            num_macroparticles=300,
-            simulation_duration_s=1e-7,
-            impact_time_delay_s=0.0,
-            time_step_s=1e-9,
+        rng = np.random.default_rng(7)
+        Np, Te_eV, Ti_eV, mi_amu = 4000, 2.0, 0.1, 1.0
+        params = SimulationParams3D(
+            grid_nodes_x=25, grid_nodes_y=25, grid_nodes_z=25,
             domain_half_length_x_m=1.0, domain_half_length_y_m=1.0, domain_half_length_z_m=1.0,
-            grid_nodes_x=12, grid_nodes_y=12, grid_nodes_z=12,
-            impact_location_xyz_m=[0.0, 0.0, 0.0],
-            impact_normal=[0.0, 0.0, 1.0],
-            vtk_files=VTKFilesConfig(
-                spis_background_potential_file='inputs/spis_V_bg.vtk',
-                spacecraft_weighting_file='inputs/spis_Vw_body.vtk',
-                antenna_weighting_files=['inputs/spis_Vw_ant1.vtk']
+            num_macroparticles=Np,
+            total_impact_charge_C=1e-9,
+            time_step_s=1e-8,
+            num_time_steps=300,
+            impact_time_delay_s=0.0,
+            ion_mass_amu=mi_amu,
+        )
+        toggles = SimulationToggles3D(
+            enable_spis_background_field=False,
+            enable_antenna_particle_collection=False,
+            enable_plasma_self_field=self_field,
+        )
+        shape = (params.Nx, params.Ny, params.Nz)
+        zeros = np.zeros(shape)
+        with contextlib.redirect_stdout(io.StringIO()):
+            sim = DustImpactSimulation3D(
+                params, toggles, zeros, [zeros.copy()], zeros, zeros, zeros,
+                [zeros], [zeros], [zeros], [np.zeros(shape, dtype=bool)], np.zeros(shape, dtype=bool)
             )
-        )
-        toggles_3d = SimulationToggles3D(enable_spis_background_field=False, enable_antenna_particle_collection=False)
+        ens = sim.particles
+        pos = rng.normal(0.0, 0.15, (Np, 3))
+        for arr, col in zip((ens.x_e, ens.y_e, ens.z_e), pos.T):
+            arr[:] = col
+        for arr, col in zip((ens.x_i, ens.y_i, ens.z_i), pos.T):
+            arr[:] = col
+        # Isotropic Maxwellians (set explicitly so that the test does not depend on the injection model)
+        sigma_e = np.sqrt(e * Te_eV / m_e)
+        sigma_i = np.sqrt(e * Ti_eV / (mi_amu * amu))
+        for arr in (ens.vx_e, ens.vy_e, ens.vz_e):
+            arr[:] = rng.normal(0.0, sigma_e, Np)
+        for arr in (ens.vx_i, ens.vy_i, ens.vz_i):
+            arr[:] = rng.normal(0.0, sigma_i, Np)
 
-        Nx, Ny, Nz = params_3d.Nx, params_3d.Ny, params_3d.Nz
-        V_bg = np.zeros((Nx, Ny, Nz))
-        Vw_grids = [np.zeros((Nx, Ny, Nz))]
-        Ex_bg, Ey_bg, Ez_bg = np.zeros((Nx, Ny, Nz)), np.zeros((Nx, Ny, Nz)), np.zeros((Nx, Ny, Nz))
-        Ewx_list, Ewy_list, Ewz_list = [Ex_bg], [Ey_bg], [Ez_bg]
-        antenna_masks_3d = [np.zeros((Nx, Ny, Nz), dtype=bool)]
-        spacecraft_mask_3d = np.zeros((Nx, Ny, Nz), dtype=bool)
+        with contextlib.redirect_stdout(io.StringIO()):
+            for step in range(params.steps):
+                sim.step(step)
 
-        sim_3d = DustImpactSimulation3D(
-            params_3d, toggles_3d,
-            V_bg, Vw_grids, Ex_bg, Ey_bg, Ez_bg, Ewx_list, Ewy_list, Ewz_list,
-            antenna_masks_3d, spacecraft_mask_3d
-        )
+        c_s = np.sqrt(e * Te_eV / (mi_amu * amu))
+        return ens, c_s
 
-        r_i_initial_3d = np.sqrt(sim_3d.x_i**2 + sim_3d.y_i**2 + sim_3d.z_i**2)
-        r_max_0_3d = np.max(r_i_initial_3d)
+    def test_ambipolar_ion_acceleration(self):
+        """
+        Verifies ambipolar expansion of an impact plasma cloud:
+        hot electrons are retained by the self-consistent space-charge field, which in turn
+        accelerates the (initially cold) ions radially outward to a fraction of the ion sound speed
+        c_s = sqrt(k_B T_e / m_i). Without the self-field neither effect may occur.
+        """
+        results = {}
+        for self_field in (True, False):
+            ens, c_s = self._run_expanding_cloud(self_field)
+            a = ens.active_i
+            r = np.sqrt(ens.x_i[a]**2 + ens.y_i[a]**2 + ens.z_i[a]**2)
+            v_r = (ens.vx_i[a] * ens.x_i[a] + ens.vy_i[a] * ens.y_i[a] + ens.vz_i[a] * ens.z_i[a]) / r
+            results[self_field] = (np.mean(v_r) / c_s, np.mean(ens.active_e))
 
-        res_3d = sim_3d.run()
+        vr_sf, retained_sf = results[True]
+        vr_free, retained_free = results[False]
 
-        active_i_3d = sim_3d.active_i
-        self.assertGreater(np.sum(active_i_3d), 0)
-
-        r_i_final_3d = np.sqrt(sim_3d.x_i[active_i_3d]**2 + sim_3d.y_i[active_i_3d]**2 + sim_3d.z_i[active_i_3d]**2)
-        r_max_final_3d = np.max(r_i_final_3d)
-
-        v_exp_num_3d = (r_max_final_3d - r_max_0_3d) / params_3d.t_max
-        ratio_3d = v_exp_num_3d / c_s
-
-        self.assertGreater(v_exp_num_3d, 0.2 * c_s)
-        self.assertLess(v_exp_num_3d, 5.0 * c_s)
+        # Ions are accelerated outward only by the ambipolar field
+        self.assertGreater(vr_sf, 0.15)
+        self.assertLess(vr_sf, 1.5)
+        self.assertLess(abs(vr_free), 0.05)
+        # Electrons are electrostatically confined by the positive cloud potential
+        self.assertGreater(retained_sf, 3.0 * retained_free)
 
         self._log_result(
-            "Ambipolar Expansion Front Velocity (3D PIC)",
+            "Ambipolar Ion Acceleration (3D PIC)",
             "PASS",
-            f"3D: v_exp = {v_exp_num_3d/1e3:.2f} km/s (Ratio={ratio_3d:.2f}) | "
-            f"c_s = {c_s/1e3:.2f} km/s"
+            f"<v_r,i>/c_s: self-field = {vr_sf:.3f}, free = {vr_free:.3f} | "
+            f"retained electrons: self-field = {retained_sf:.2f}, free = {retained_free:.2f}"
         )
-
-        # Render 3D Animated GIF
-        try:
-            import matplotlib.pyplot as plt
-            import matplotlib.animation as animation
-
-            history_3d = res_3d['history']
-            frames_3d = len(history_3d['t'])
-
-            fig_3d = plt.figure(figsize=(9, 7))
-            ax_3d = fig_3d.add_subplot(111, projection='3d')
-
-            scat_i_3d = ax_3d.scatter([], [], [], s=16, color='blue', alpha=0.6, label='Ions')
-            scat_e_3d = ax_3d.scatter([], [], [], s=10, color='cyan', alpha=0.5, label='Electrons')
-
-            ax_3d.set_xlim(-params_3d.L_x, params_3d.L_x)
-            ax_3d.set_ylim(-params_3d.L_y, params_3d.L_y)
-            ax_3d.set_zlim(-params_3d.L_z, params_3d.L_z)
-            ax_3d.set_xlabel('Position X [m]')
-            ax_3d.set_ylabel('Position Y [m]')
-            ax_3d.set_zlabel('Position Z [m]')
-            ax_3d.set_title(f'Level 2: 3D Ambipolar Expansion (v_exp = {v_exp_num_3d/1e3:.1f} km/s, c_s = {c_s/1e3:.1f} km/s)')
-            ax_3d.legend(loc='upper right')
-
-            time_text_3d = ax_3d.text2D(0.02, 0.95, '', transform=ax_3d.transAxes, bbox=dict(facecolor='white', alpha=0.8))
-
-            def update_3d(frame_idx):
-                t_curr = history_3d['t'][frame_idx]
-                xi = history_3d['x_i'][frame_idx]
-                yi = history_3d['y_i'][frame_idx]
-                zi = history_3d['z_i'][frame_idx]
-                xe = history_3d['x_e'][frame_idx]
-                ye = history_3d['y_e'][frame_idx]
-                ze = history_3d['z_e'][frame_idx]
-
-                mask_i = ~np.isnan(xi)
-                mask_e = ~np.isnan(xe)
-
-                scat_i_3d._offsets3d = (xi[mask_i], yi[mask_i], zi[mask_i])
-                scat_e_3d._offsets3d = (xe[mask_e], ye[mask_e], ze[mask_e])
-
-                time_text_3d.set_text(f"Time: {t_curr * 1e9:.2f} ns")
-                return scat_i_3d, scat_e_3d, time_text_3d
-
-            anim_3d = animation.FuncAnimation(fig_3d, update_3d, frames=frames_3d, interval=150, blit=False)
-            gif_path_3d = os.path.join(self.report_dir, "physics_level2_ambipolar_expansion_3d.gif")
-            anim_3d.save(gif_path_3d, writer='pillow', fps=10)
-            plt.close(fig_3d)
-        except Exception as err:
-            print(f"Skipping 3D GIF animation save: {err}")
 
 
 if __name__ == "__main__":

@@ -1,19 +1,16 @@
+import contextlib
+import io
 import unittest
 import os
 import numpy as np
-from dust_impact.physics.constants import e, m_e, eps_0
+
 from dust_impact.common.circuits import integrate_rc_circuit
 from dust_impact.common.io import ensure_dir
-from dust_impact.physics.charging import calculate_equilibrium_potential, ENV_EARTH, MAT_ALUMINIUM
+from dust_impact.physics.charging import (
+    calculate_equilibrium_potential, electron_thermal_current_density, f_balance, ENV_EARTH, MAT_ALUMINIUM
+)
 from dust_impact.solver.config_loader import SimulationParams3D, SimulationToggles3D
 from dust_impact.solver.sim_core import DustImpactSimulation3D
-
-
-def _calc_gaussian_Ew_3d(x: np.ndarray, y: np.ndarray, z: np.ndarray, w_width: float = 0.2):
-    """Analytical 3D Gaussian weighting field centered at origin."""
-    r_sq = x ** 2 + y ** 2 + z ** 2
-    factor = (2.0 / w_width ** 2) * np.exp(-r_sq / (w_width ** 2))
-    return x * factor, y * factor, z * factor
 
 
 class TestPhysicsLevel1(unittest.TestCase):
@@ -91,221 +88,115 @@ class TestPhysicsLevel1(unittest.TestCase):
         except Exception as err:
             print(f"Skipping plot save (headless/matplotlib error): {err}")
 
-    def test_ramo_shockley_zero_net_charge_transfer(self):
+    @unittest.expectedFailure
+    def test_0d_charging_current_balance(self):
         """
-        Verifies Ramo-Shockley theorem:
-        A charge passing by a conductor without physical impact produces a bipolar
-        induced current waveform whose time integral over all time is exactly zero.
-        """
-        v0 = 1e5  # 100 km/s
-        y0 = 0.3  # 30 cm offset
-        q0 = e * 1e4
-        dt = 1e-9
-        time = np.linspace(-10e-6, 10e-6, 20000)
+        Verifies the 0D floating potential: the net current density f(V) = Je - Ji - Jph - Jse must
+        vanish at V_eq, and V_eq must be a bracketed root (f changes sign around it).
 
-        x_pos = v0 * time
-        y_pos = np.full_like(x_pos, y0)
-        z_pos = np.zeros_like(x_pos)
-
-        Ewx, Ewy, Ewz = _calc_gaussian_Ew_3d(x_pos, y_pos, z_pos, w_width=0.2)
-        I_ind = - q0 * (v0 * Ewx + 0.0 * Ewy + 0.0 * Ewz)
-        Q_net = np.sum(I_ind) * dt
-
-        self.assertAlmostEqual(Q_net, 0.0, delta=1e-18)
-
-        self._log_result(
-            "Ramo-Shockley Zero Net Charge Transfer",
-            "PASS",
-            f"Net Charge Integral Q_net = {Q_net:.4e} C (Exact Zero)"
-        )
-
-        try:
-            import matplotlib.pyplot as plt
-            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 6), sharex=True)
-            ax1.plot(time * 1e6, Ewx, 'g-', lw=2, label='Weighting Field Ewx [V/m]')
-            ax1.set_ylabel('Weighting Field [1/m]')
-            ax1.set_title('Level 1: Ramo-Shockley Bipolar Induced Current')
-            ax1.grid(True, ls=':')
-            ax1.legend()
-
-            ax2.plot(time * 1e6, I_ind * 1e9, 'm-', lw=2, label='Induced Current I_ind [nA]')
-            ax2.axhline(0, color='grey', ls='--', alpha=0.7)
-            ax2.set_xlabel('Time [µs]')
-            ax2.set_ylabel('Current [nA]')
-            ax2.grid(True, ls=':')
-            ax2.legend()
-
-            fig.tight_layout()
-            plot_path = os.path.join(self.report_dir, "physics_level1_ramo_shockley.png")
-            fig.savefig(plot_path, dpi=300)
-            plt.close(fig)
-        except Exception as err:
-            print(f"Skipping plot save (headless/matplotlib error): {err}")
-
-    def test_0d_charging_root_precision(self):
-        """
-        Verifies 0D equilibrium potential current balance precision:
-        f(V_eq) = 0
+        KNOWN FAILURE: with the current charging.py model f(V) < 0 on the whole interval [-100, 100] V
+        (secondary emission is not suppressed for V > 0, so Je - Jse < 0), no root exists and
+        find_root_bisection silently returns the interval midpoint (25 V for Earth / Al).
         """
         V_eq = calculate_equilibrium_potential(ENV_EARTH, MAT_ALUMINIUM, verbose=False)
-        self.assertIsInstance(V_eq, float)
-        self.assertGreater(V_eq, -50.0)
-        self.assertLess(V_eq, 50.0)
+        J_scale = electron_thermal_current_density(ENV_EARTH.n, ENV_EARTH.Te_eV)
+
+        residual = f_balance(V_eq, ENV_EARTH, MAT_ALUMINIUM) / J_scale
+        self.assertLess(abs(residual), 1e-4)
+        f_lo = f_balance(V_eq - 0.5, ENV_EARTH, MAT_ALUMINIUM)
+        f_hi = f_balance(V_eq + 0.5, ENV_EARTH, MAT_ALUMINIUM)
+        self.assertLess(f_lo * f_hi, 0.0, "V_eq is not a bracketed root of the current balance")
 
         self._log_result(
-            "0D Charging Root Precision",
+            "0D Charging Current Balance",
             "PASS",
-            f"Equilibrium Surface Potential (Earth - Al): {V_eq:.4f} V"
+            f"V_eq (Earth - Al) = {V_eq:.4f} V | f(V_eq)/J_e0 = {residual:.2e}"
         )
 
-    def test_charge_conservation_in_3d_pic(self):
+    def test_charge_balance_in_3d_pic(self):
         """
-        Verifies global conservation of charge in 3D PIC simulation:
-        Q_total(t=0) == Q_active(t) + Q_collected(t) + Q_escaped(t)
+        Verifies charge conservation of the antenna signal in a full self-consistent 3D PIC run.
+
+        Ramo-Shockley theorem: the total charge delivered to an antenna equals
+            Q = sum_p q_p * [Vw(r_p,end) - Vw(r_p,start)],
+        with Vw(r_end) = 1 for particles collected by the antenna. The cloud is injected after a
+        non-zero delay and expands under its own field, so collection, escape and induction all occur.
         """
+        rng = np.random.default_rng(11)
         params = SimulationParams3D(
-            Vf=-5.0,
-            num_macroparticles=150,
-            simulation_duration_s=2e-8,
-            time_step_s=1e-9,
-            grid_nodes_x=10,
-            grid_nodes_y=10,
-            grid_nodes_z=10,
-            domain_half_length_x_m=2.0,
-            domain_half_length_y_m=2.0,
-            domain_half_length_z_m=2.0,
+            grid_nodes_x=25, grid_nodes_y=25, grid_nodes_z=25,
+            domain_half_length_x_m=1.5, domain_half_length_y_m=1.5, domain_half_length_z_m=1.5,
+            num_macroparticles=3000,
+            total_impact_charge_C=2e-10,
+            time_step_s=1e-8,
+            num_time_steps=150,
+            impact_time_delay_s=3e-8,
+            ion_mass_amu=1.0,
             impact_location_xyz_m=[0.0, 0.0, 0.0],
-            impact_normal=[0.0, 0.0, 1.0],
-            antenna_capacitance_F=[1e-12],
-            antenna_resistance_Ohm=[10e3],
-            antenna_bias_voltage_V=[0.0],
-            antenna_collection_efficiency=[1.0]
+            impact_normal=[1.0, 0.0, 0.0],
         )
         toggles = SimulationToggles3D(
             enable_spis_background_field=False,
-            enable_antenna_particle_collection=True
+            enable_antenna_particle_collection=True,
+            enable_plasma_self_field=True,
         )
 
-        Nx, Ny, Nz = params.Nx, params.Ny, params.Nz
-        V_bg = np.zeros((Nx, Ny, Nz))
-        Vw_grids = [np.zeros((Nx, Ny, Nz))]
-        Ex_bg, Ey_bg, Ez_bg = np.zeros((Nx, Ny, Nz)), np.zeros((Nx, Ny, Nz)), np.zeros((Nx, Ny, Nz))
-        Ewx_list, Ewy_list, Ewz_list = [Ex_bg], [Ey_bg], [Ez_bg]
-        antenna_masks_3d = [np.zeros((Nx, Ny, Nz), dtype=bool)]
-        antenna_masks_3d[0][params.Nx // 2, params.Ny // 2, params.Nz // 2] = True
-        spacecraft_mask_3d = np.zeros((Nx, Ny, Nz), dtype=bool)
+        # Spherical antenna (radius R, centre c) with vacuum weighting potential Vw = R / |r - c|
+        X, Y, Z = np.meshgrid(params.x_grid, params.y_grid, params.z_grid, indexing='ij')
+        c_ant, R_ant = np.array([0.7, 0.0, 0.0]), 0.3
+        r_ant = np.sqrt((X - c_ant[0])**2 + (Y - c_ant[1])**2 + (Z - c_ant[2])**2)
+        ant_mask = r_ant <= R_ant
+        Vw = np.where(ant_mask, 1.0, R_ant / np.maximum(r_ant, 1e-12))
+        Ewx, Ewy, Ewz = np.gradient(-Vw, params.dx, params.dy, params.dz)
+        shape = (params.Nx, params.Ny, params.Nz)
+        zeros = np.zeros(shape)
 
-        sim = DustImpactSimulation3D(
-            params, toggles,
-            V_bg, Vw_grids, Ex_bg, Ey_bg, Ez_bg, Ewx_list, Ewy_list, Ewz_list,
-            antenna_masks_3d, spacecraft_mask_3d
-        )
+        with contextlib.redirect_stdout(io.StringIO()):
+            sim = DustImpactSimulation3D(
+                params, toggles, zeros, [Vw], zeros, zeros, zeros,
+                [Ewx], [Ewy], [Ewz], [ant_mask], np.zeros(shape, dtype=bool)
+            )
+        ens = sim.particles
+        # Quasi-neutral Gaussian cloud (sigma = 0.1 m) resolved by the grid
+        pos = rng.normal(0.0, 0.1, (params.N_particles, 3))
+        for arr, col in zip((ens.x_e, ens.y_e, ens.z_e), pos.T):
+            arr[:] = col
+        for arr, col in zip((ens.x_i, ens.y_i, ens.z_i), pos.T):
+            arr[:] = col
 
-        Q_e_init = - sim.p.N_particles * sim.p.q_macro
-        Q_i_init = + sim.p.N_particles * sim.p.q_macro
-        Q_tot_init = Q_e_init + Q_i_init
+        fs = sim.field_solver
+        vw_start_e = fs.interp_field(ens.x_e, ens.y_e, ens.z_e, Vw)
+        vw_start_i = fs.interp_field(ens.x_i, ens.y_i, ens.z_i, Vw)
 
-        sim.run()
+        with contextlib.redirect_stdout(io.StringIO()):
+            sim.run()
 
-        Q_active_e = - np.sum(sim.active_e) * sim.p.q_macro
-        Q_active_i = + np.sum(sim.active_i) * sim.p.q_macro
-        Q_active = Q_active_e + Q_active_i
+        def vw_end(x, y, z, active):
+            v = fs.interp_field(x, y, z, Vw)
+            ix = np.clip(np.floor((x - params.x_grid[0]) / params.dx), 0, params.Nx - 1).astype(np.int64)
+            iy = np.clip(np.floor((y - params.y_grid[0]) / params.dy), 0, params.Ny - 1).astype(np.int64)
+            iz = np.clip(np.floor((z - params.z_grid[0]) / params.dz), 0, params.Nz - 1).astype(np.int64)
+            collected = (~active) & ant_mask[ix, iy, iz]
+            v[collected] = 1.0
+            return v, collected
 
-        Q_collected = 0.0
-        for a_idx in range(sim.num_antennas):
-            Q_collected += np.sum(sim.col_curr_e[a_idx] + sim.col_curr_i[a_idx]) * params.dt
+        vw_end_e, col_e = vw_end(ens.x_e, ens.y_e, ens.z_e, ens.active_e)
+        vw_end_i, col_i = vw_end(ens.x_i, ens.y_i, ens.z_i, ens.active_i)
 
-        escaped_e = (~sim.active_e) & (~sim.was_outside_e[0])
-        escaped_i = (~sim.active_i) & (~sim.was_outside_i[0])
-        Q_escaped_e = - np.sum(escaped_e) * sim.p.q_macro
-        Q_escaped_i = + np.sum(escaped_i) * sim.p.q_macro
-        Q_escaped = Q_escaped_e + Q_escaped_i
+        Q_expected = params.q_macro * (np.sum(vw_end_i - vw_start_i) - np.sum(vw_end_e - vw_start_e))
+        Q_signal = np.sum(sim.tot_curr[0]) * params.dt
 
-        Q_tot_final = Q_active + Q_collected + Q_escaped
-        delta_Q = abs(Q_tot_init - Q_tot_final)
-
-        self.assertAlmostEqual(Q_tot_init, Q_tot_final, delta=1e-15)
+        # The scenario must actually exercise collection and escape, otherwise the test is vacuous
+        self.assertGreater(np.sum(col_e), 0, "No electrons were collected by the antenna")
+        self.assertLess(np.sum(ens.active_e), params.N_particles, "No electrons left the simulation")
+        self.assertAlmostEqual(Q_signal / Q_expected, 1.0, places=9)
 
         self._log_result(
-            "Global Charge Conservation (3D PIC)",
+            "Antenna Charge Balance (3D PIC, Ramo-Shockley)",
             "PASS",
-            f"Q_init = {Q_tot_init:.4e} C | Q_final = {Q_tot_final:.4e} C | Delta = {delta_Q:.4e} C"
+            f"Q_signal = {Q_signal:.6e} C | Q_expected = {Q_expected:.6e} C | "
+            f"collected e/i = {int(np.sum(col_e))}/{int(np.sum(col_i))}"
         )
-
-    def test_debye_shielding_exponential_decay(self):
-        """
-        Verifies exact 1D Debye potential screening decay in plasma:
-        Solves (grad^2 - 1/lambda_D^2) V = 0 and verifies that V(x) matches exact
-        analytical solution V_exact(x) = V0 * sinh((L - x)/lambda_D) / sinh(L/lambda_D),
-        and at x = lambda_D, V(lambda_D) / V0 is within 0.1% of e^-1.
-        Saves static plot to outputs/tests/physics_level1_debye_shielding.png
-        """
-        import scipy.sparse as sp
-        import scipy.sparse.linalg as spla
-        from dust_impact.physics.constants import n_sw, Te_eV
-
-        lambda_D = np.sqrt((eps_0 * Te_eV * e) / (n_sw * e ** 2))
-        kD2 = 1.0 / lambda_D ** 2
-
-        L = 50.0
-        Nx = 200
-        x_grid = np.linspace(0, L, Nx)
-        dx = x_grid[1] - x_grid[0]
-
-        A = sp.lil_matrix((Nx, Nx))
-        b = np.zeros(Nx)
-
-        V0 = 10.0
-        A[0, 0] = 1.0
-        b[0] = V0
-
-        A[Nx - 1, Nx - 1] = 1.0
-        b[Nx - 1] = 0.0
-
-        for i in range(1, Nx - 1):
-            A[i, i - 1] = 1.0 / dx ** 2
-            A[i, i] = -2.0 / dx ** 2 - kD2
-            A[i, i + 1] = 1.0 / dx ** 2
-
-        solver = spla.factorized(A.tocsc())
-        V_num = solver(b)
-
-        V_analytical = V0 * np.sinh((L - x_grid) / lambda_D) / np.sinh(L / lambda_D)
-
-        target_idx = np.argmin(np.abs(x_grid - lambda_D))
-        V_num_lambda = V_num[target_idx]
-        V_ana_lambda = V_analytical[target_idx]
-
-        rel_err = abs(V_num_lambda - V_ana_lambda) / V_ana_lambda
-
-        self.assertLess(rel_err, 0.001)
-        self.assertAlmostEqual(V_num_lambda / V0, np.exp(-1), delta=0.01)
-
-        self._log_result(
-            "Debye Shielding Potential Decay",
-            "PASS",
-            f"Rel Error at lambda_D: {rel_err * 100:.4f}% | V(lambda_D)/V0: {V_num_lambda / V0:.4f} (exp(-1)={np.exp(-1):.4f})"
-        )
-
-        try:
-            import matplotlib.pyplot as plt
-            fig, ax = plt.subplots(figsize=(8, 5))
-            ax.plot(x_grid, V_analytical, 'k--', lw=2, label='Exact Analytical $V_{exact}(x)$')
-            ax.plot(x_grid[::5], V_num[::5], 'ro', mfc='none', mew=1.5, label='Numerical Finite Difference')
-            ax.axvline(x=lambda_D, color='blue', ls=':', label=f'Debye Length $\\lambda_D$ ({lambda_D:.2f} m)')
-            ax.axhline(y=V0 * np.exp(-1), color='grey', ls='--', alpha=0.6, label='$V_0 / e$ Threshold')
-            ax.set_xlabel('Distance x [m]')
-            ax.set_ylabel('Potential V [V]')
-            ax.set_title('Level 1: Exact Debye Shielding Exponential Decay')
-            ax.grid(True, ls=':')
-            ax.legend()
-
-            fig.tight_layout()
-            plot_path = os.path.join(self.report_dir, "physics_level1_debye_shielding.png")
-            fig.savefig(plot_path, dpi=300)
-            plt.close(fig)
-        except Exception as err:
-            print(f"Skipping plot save (headless/matplotlib error): {err}")
 
 
 if __name__ == "__main__":
