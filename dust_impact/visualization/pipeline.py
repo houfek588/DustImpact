@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 from dust_impact.common.io import export_time_series_csv
 from dust_impact.visualization.styles import cleanup_animation
 from dust_impact.visualization.signals import plot_currents_and_voltage
-from dust_impact.visualization.fields import plot_static_vtk_fields, animate_fields_slice
+from dust_impact.visualization.fields import plot_static_vtk_fields, animate_fields_slice, plot_potential_line_x
 from dust_impact.visualization.particles import animate_particles_2d_slice, animate_particles_3d
 from dust_impact.visualization.distributions import animate_velocity_distribution
 
@@ -74,7 +74,14 @@ class VisualizationPipeline:
         if fig_f:
             self.figures.append(fig_f)
 
-        # 4. 2D YZ Slice animation of particle positions
+        # 4. 1D Potential profile along X-axis at t=0, T/2, 3T/4, T
+        fig_line_x = plot_potential_line_x(
+            hist, params, plot_cfg, spacecraft_mask=spacecraft_mask
+        )
+        if fig_line_x:
+            self.figures.append(fig_line_x)
+
+        # 5. 2D YZ Slice animation of particle positions
         fig_p2d, anim_p2d = animate_particles_2d_slice(
             hist, params, plot_cfg, anims=self.animations,
             spacecraft_mask=spacecraft_mask, antenna_masks=antenna_masks

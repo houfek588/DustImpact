@@ -172,6 +172,7 @@ def _resolve_output_paths(plot_config: PlottingConfig3D, base_dir: str, output_d
         'output_csv_filepath',
         'file_currents',
         'file_fields_anim',
+        'file_potential_line_x',
         'file_particles_anim',
         'file_velocity_anim'
     ]

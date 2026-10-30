@@ -6,8 +6,8 @@
             "spacecraft": {
                 "type": "sphere",
                 "center": [0.0, 0.0, 0.0],
-                "radius": 0.3,
-                "voltage_V": 20.0
+                "radius": 1.0,
+                "voltage_V": 1.0
             },
             "antennas": [
 
@@ -27,7 +27,7 @@
         "ion_mass_amu": 1.0,
         "solar_wind_electron_temp_eV": 2.0,
         "solar_wind_ion_temp_eV": 2.0,
-        "solar_wind_density_m3": 10000000.0,
+        "solar_wind_density_m3": 1e8,
         "total_impact_charge_C": 5e-11,
         "plasma_injection_mode": "homogeneous",
         "impact": {
@@ -37,14 +37,16 @@
         }
     },
     "numeric": {
-        "num_macroparticles": 10000,
+        "num_macroparticles": 300000,
         "time_step_s": 2e-09,
-        "num_time_steps": 10000,
+        "num_time_steps": 400000,
         "domain_half_length_m": [5.0, 5.0, 5.0],
-        "grid_nodes": [40, 40, 40]
+        "grid_nodes": [60, 60, 60]
     },
     "plotting": {
         "run_physical_simulation": true,
+        "show_potential_line_x": true,
+        "file_potential_line_x": "outputs/out_analytical_debye_potencial_osa_x.png",
         "show_interactive_gui_windows": true,
         "save_plots_to_disk": true,
         "export_csv_time_series": false,

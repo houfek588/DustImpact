@@ -481,6 +481,7 @@ class PlottingSchema(StrictBaseModel):
 
     show_currents: bool = Field(True, description="Plot antenna currents and voltages")
     show_fields_slice: bool = Field(True, description="Generate potential slice animation")
+    show_potential_line_x: bool = Field(True, description="Plot electric potential along X-axis at t=0, T/2, 3T/4, T")
     show_particles_3d: bool = Field(True, description="Generate 3D particle animation")
     show_velocity_anim: bool = Field(True, description="Generate velocity phase space animation")
 
@@ -497,6 +498,7 @@ class PlottingSchema(StrictBaseModel):
 
     file_currents: str = "outputs/out_3d_proudy_napeti.png"
     file_fields_anim: str = "outputs/out_3d_animace_pole_potencial.gif"
+    file_potential_line_x: str = "outputs/out_3d_potencial_osa_x.png"
     file_particles_anim: str = "outputs/out_3d_animace_pozice_castic.gif"
     file_velocity_anim: str = "outputs/out_3d_animace_rychlosti.gif"
 

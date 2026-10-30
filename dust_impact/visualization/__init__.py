@@ -16,7 +16,7 @@ if sys.platform != "win32" and not os.environ.get("DISPLAY"):
         pass
 
 from dust_impact.visualization.signals import plot_currents_and_voltage
-from dust_impact.visualization.fields import plot_static_vtk_fields, animate_fields_slice
+from dust_impact.visualization.fields import plot_static_vtk_fields, animate_fields_slice, plot_potential_line_x
 from dust_impact.visualization.particles import animate_particles_2d_slice, animate_particles_3d
 from dust_impact.visualization.distributions import animate_velocity_distribution
 from dust_impact.visualization.pipeline import VisualizationPipeline, plot_simulation_results_3d
@@ -32,6 +32,7 @@ __all__ = [
     "plot_currents_and_voltage",
     "plot_static_vtk_fields",
     "animate_fields_slice",
+    "plot_potential_line_x",
     "animate_particles_2d_slice",
     "animate_particles_3d",
     "animate_velocity_distribution",

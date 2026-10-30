@@ -19,6 +19,7 @@ from dust_impact.visualization import (
     plot_currents_and_voltage,
     plot_static_vtk_fields,
     animate_fields_slice,
+    plot_potential_line_x,
     animate_particles_2d_slice,
     animate_particles_3d,
     animate_velocity_distribution,
@@ -132,6 +133,11 @@ class TestVisualization(unittest.TestCase):
         self.assertIsNotNone(anim)
         cleanup_animation(anim)
 
+    def test_plot_potential_line_x(self):
+        fig = plot_potential_line_x(self.results['history'], self.params, self.plot_cfg)
+        self.assertIsNotNone(fig)
+        self.assertEqual(len(fig.axes), 4)
+
     def test_csv_export(self):
         csv_path = os.path.join(self.tmp_dir, "test_signals.csv")
         out = export_time_series_csv(self.results, self.params, csv_path)
@@ -145,7 +151,7 @@ class TestVisualization(unittest.TestCase):
     def test_pipeline_run_headless(self):
         pipeline = VisualizationPipeline()
         pipeline.run(self.results, self.params, self.plot_cfg)
-        self.assertEqual(len(pipeline.figures), 5)
+        self.assertEqual(len(pipeline.figures), 6)
         self.assertEqual(len(pipeline.animations), 4)
 
     def test_backward_compatibility_facades(self):
@@ -155,6 +161,8 @@ class TestVisualization(unittest.TestCase):
         self.assertTrue(callable(legacy_plot._plot_currents_and_voltage))
         self.assertTrue(callable(legacy_plot._plot_static_vtk_fields))
         self.assertTrue(callable(legacy_plot._animate_yz_fields_slice))
+        self.assertTrue(callable(legacy_plot.plot_potential_line_x))
+        self.assertTrue(callable(legacy_plot._plot_potential_line_x))
         self.assertTrue(callable(legacy_plot._export_csv))
 
         # 2. common.vtk_export facade

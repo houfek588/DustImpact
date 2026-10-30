@@ -30,6 +30,7 @@ class PlottingConfig3D:
 
     show_currents: bool = True
     show_fields_slice: bool = True
+    show_potential_line_x: bool = True
     show_particles_3d: bool = True
     show_velocity_anim: bool = True
 
@@ -46,6 +47,7 @@ class PlottingConfig3D:
 
     file_currents: str = "outputs/out_3d_proudy_napeti.png"
     file_fields_anim: str = "outputs/out_3d_animace_pole_potencial.gif"
+    file_potential_line_x: str = "outputs/out_3d_potencial_osa_x.png"
     file_particles_anim: str = "outputs/out_3d_animace_pozice_castic.gif"
     file_velocity_anim: str = "outputs/out_3d_animace_rychlosti.gif"
 

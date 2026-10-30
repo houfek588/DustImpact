@@ -11,6 +11,7 @@ from dust_impact.visualization import (
     plot_currents_and_voltage,
     plot_static_vtk_fields,
     animate_fields_slice,
+    plot_potential_line_x,
     animate_particles_2d_slice,
     animate_particles_3d,
     animate_velocity_distribution,
@@ -20,6 +21,7 @@ from dust_impact.visualization import (
 _plot_currents_and_voltage = plot_currents_and_voltage
 _plot_static_vtk_fields = plot_static_vtk_fields
 _animate_yz_fields_slice = animate_fields_slice
+_plot_potential_line_x = plot_potential_line_x
 _animate_yz_particles_slice = animate_particles_2d_slice
 _animate_3d_particles = animate_particles_3d
 _animate_velocity_distribution = animate_velocity_distribution
@@ -30,12 +32,14 @@ __all__ = [
     "plot_currents_and_voltage",
     "plot_static_vtk_fields",
     "animate_fields_slice",
+    "plot_potential_line_x",
     "animate_particles_2d_slice",
     "animate_particles_3d",
     "animate_velocity_distribution",
     "_plot_currents_and_voltage",
     "_plot_static_vtk_fields",
     "_animate_yz_fields_slice",
+    "_plot_potential_line_x",
     "_animate_yz_particles_slice",
     "_animate_3d_particles",
     "_animate_velocity_distribution",

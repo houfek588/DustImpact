@@ -243,6 +243,7 @@ Definuje výpočetní síť, časovou diskretizaci a počet makročástic pro Pa
     "export_csv_time_series": false,
     "show_currents": true,
     "show_fields_slice": true,
+    "show_potential_line_x": true,
     "show_particles_3d": true,
     "show_velocity_anim": true,
     "output_format": "h5",
@@ -255,6 +256,7 @@ Definuje výpočetní síť, časovou diskretizaci a počet makročástic pro Pa
     "vtk_output_dir": "outputs/paraview_vtk",
     "file_currents": "outputs/out_3d_proudy_napeti.png",
     "file_fields_anim": "outputs/out_3d_animace_pole_potencial.gif",
+    "file_potential_line_x": "outputs/out_3d_potencial_osa_x.png",
     "file_particles_anim": "outputs/out_3d_animace_pozice_castic.gif",
     "file_velocity_anim": "outputs/out_3d_animace_rychlosti.gif"
 }
@@ -268,6 +270,7 @@ Definuje výpočetní síť, časovou diskretizaci a počet makročástic pro Pa
 | `export_csv_time_series` | `bool` | `false` | Zda uložit časové řady proudů a napětí všech antén do přehledného CSV souboru. |
 | `show_currents` | `bool` | `true` | Generování grafu časového průběhu indukovaných a sběrových proudů a napětí na anténách. |
 | `show_fields_slice` | `bool` | `true` | Generování GIF animace prostorového řezu potenciálem plazmatu. |
+| `show_potential_line_x` | `bool` | `true` | Generování 4-panelového grafu prostorového průběhu elektrického potenciálu podél osy X ($y=0, z=0$) v časech $t=0, T/2, 3T/4, T$. |
 | `show_particles_3d` | `bool` | `true` | Generování 3D prostorové animace kinetiky makročástic. |
 | `show_velocity_anim` | `bool` | `true` | Generování fázové animace rychlostních profilů částic ($v_x, v_y, v_z$). |
 | `output_format` | `string` | `"h5"` | Formát ukládání hlavních stavových polí a částic: `"h5"` (HDF5 komprimovaný dataset – vysoce doporučeno) nebo `"npz"` (NumPy zip archiv). |
@@ -280,6 +283,7 @@ Definuje výpočetní síť, časovou diskretizaci a počet makročástic pro Pa
 | `vtk_output_dir` | `string` | `"outputs/paraview_vtk"` | Složka pro uložení ParaView VTK dat. |
 | `file_currents` | `string` | `"outputs/out_3d_proudy_napeti.png"` | Cesta pro uložení výsledného grafu odezvy antén. |
 | `file_fields_anim` | `string` | `"outputs/out_3d_animace_pole_potencial.gif"` | Cesta pro animaci pole potenciálu. |
+| `file_potential_line_x` | `string` | `"outputs/out_3d_potencial_osa_x.png"` | Cesta pro uložení 4-panelového grafu potenciálu podél osy X. |
 | `file_particles_anim` | `string` | `"outputs/out_3d_animace_pozice_castic.gif"` | Cesta pro 3D animaci částic. |
 | `file_velocity_anim` | `string` | `"outputs/out_3d_animace_rychlosti.gif"` | Cesta pro fázovou animaci rychlostí. |
 

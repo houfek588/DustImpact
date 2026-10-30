@@ -1,0 +1,966 @@
+{
+    "$defs": {
+        "AnalyticalAntennaSchema": {
+            "additionalProperties": false,
+            "properties": {
+                "p_start": {
+                    "description": "Antenna base coordinates [x1, y1, z1] in meters",
+                    "items": {
+                        "type": "number"
+                    },
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "title": "P Start",
+                    "type": "array"
+                },
+                "p_end": {
+                    "description": "Antenna tip coordinates [x2, y2, z2] in meters",
+                    "items": {
+                        "type": "number"
+                    },
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "title": "P End",
+                    "type": "array"
+                },
+                "radius": {
+                    "default": 0.015,
+                    "description": "Wire conductor physical radius in meters",
+                    "exclusiveMinimum": 0.0,
+                    "title": "Radius",
+                    "type": "number"
+                },
+                "voltage_V": {
+                    "default": 0.0,
+                    "description": "Antenna bias potential [V]",
+                    "title": "Voltage V",
+                    "type": "number"
+                },
+                "capacitance_F": {
+                    "anyOf": [
+                        {
+                            "exclusiveMinimum": 0.0,
+                            "type": "number"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "default": null,
+                    "description": "RC circuit input capacitance [F]",
+                    "title": "Capacitance F"
+                },
+                "resistance_Ohm": {
+                    "anyOf": [
+                        {
+                            "exclusiveMinimum": 0.0,
+                            "type": "number"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "default": null,
+                    "description": "RC circuit input resistance [Ohm]",
+                    "title": "Resistance Ohm"
+                }
+            },
+            "title": "AnalyticalAntennaSchema",
+            "type": "object"
+        },
+        "AnalyticalGeometrySchema": {
+            "additionalProperties": false,
+            "properties": {
+                "spacecraft": {
+                    "$ref": "#/$defs/AnalyticalSpacecraftPartSchema",
+                    "description": "Analytical spacecraft geometry definition"
+                },
+                "antennas": {
+                    "description": "List of analytical wire antennas",
+                    "items": {
+                        "$ref": "#/$defs/AnalyticalAntennaSchema"
+                    },
+                    "title": "Antennas",
+                    "type": "array"
+                }
+            },
+            "title": "AnalyticalGeometrySchema",
+            "type": "object"
+        },
+        "AnalyticalSpacecraftPartSchema": {
+            "additionalProperties": false,
+            "properties": {
+                "type": {
+                    "default": "sphere",
+                    "description": "Geometric primitive shape",
+                    "enum": [
+                        "sphere",
+                        "box",
+                        "cube",
+                        "cylinder",
+                        "composite"
+                    ],
+                    "title": "Type",
+                    "type": "string"
+                },
+                "center": {
+                    "description": "Center coordinates [x0, y0, z0] in meters",
+                    "items": {
+                        "type": "number"
+                    },
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "title": "Center",
+                    "type": "array"
+                },
+                "radius": {
+                    "default": 1.0,
+                    "description": "Radius in meters (for sphere and cylinder)",
+                    "exclusiveMinimum": 0.0,
+                    "title": "Radius",
+                    "type": "number"
+                },
+                "dimensions": {
+                    "description": "Side lengths [a, b, c] in meters (for box)",
+                    "items": {
+                        "type": "number"
+                    },
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "title": "Dimensions",
+                    "type": "array"
+                },
+                "side_length": {
+                    "anyOf": [
+                        {
+                            "exclusiveMinimum": 0.0,
+                            "type": "number"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "default": null,
+                    "description": "Equal side length for cube",
+                    "title": "Side Length"
+                },
+                "p_start": {
+                    "description": "Start point along cylinder axis",
+                    "items": {
+                        "type": "number"
+                    },
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "title": "P Start",
+                    "type": "array"
+                },
+                "p_end": {
+                    "description": "End point along cylinder axis",
+                    "items": {
+                        "type": "number"
+                    },
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "title": "P End",
+                    "type": "array"
+                },
+                "voltage_V": {
+                    "anyOf": [
+                        {
+                            "type": "number"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "default": null,
+                    "description": "Electrostatic potential of this part [V]",
+                    "title": "Voltage V"
+                },
+                "parts": {
+                    "description": "Sub-parts for composite spacecraft",
+                    "items": {
+                        "$ref": "#/$defs/AnalyticalSpacecraftPartSchema"
+                    },
+                    "title": "Parts",
+                    "type": "array"
+                }
+            },
+            "title": "AnalyticalSpacecraftPartSchema",
+            "type": "object"
+        },
+        "GeometrySchema": {
+            "additionalProperties": false,
+            "properties": {
+                "source": {
+                    "default": "spis",
+                    "description": "Geometry source mode: 'spis' (VTK fields) or 'analytical' (pure shapes)",
+                    "enum": [
+                        "spis",
+                        "analytical"
+                    ],
+                    "title": "Source",
+                    "type": "string"
+                },
+                "spis": {
+                    "$ref": "#/$defs/SpisGeometrySchema",
+                    "description": "SPIS VTK geometry configuration"
+                },
+                "analytical": {
+                    "$ref": "#/$defs/AnalyticalGeometrySchema",
+                    "description": "Analytical geometry configuration"
+                }
+            },
+            "title": "GeometrySchema",
+            "type": "object"
+        },
+        "ImpactSchema": {
+            "additionalProperties": false,
+            "properties": {
+                "location": {
+                    "description": "Initial coordinates of dust grain before impact [m]",
+                    "items": {
+                        "type": "number"
+                    },
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "title": "Location",
+                    "type": "array"
+                },
+                "direction": {
+                    "description": "Flight direction vector of dust grain [vx, vy, vz]",
+                    "items": {
+                        "type": "number"
+                    },
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "title": "Direction",
+                    "type": "array"
+                },
+                "time_delay_s": {
+                    "default": 1e-06,
+                    "description": "Time delay before cloud expansion begins [s]",
+                    "minimum": 0.0,
+                    "title": "Time Delay S",
+                    "type": "number"
+                },
+                "normal": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "type": "number"
+                            },
+                            "maxItems": 3,
+                            "minItems": 3,
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "default": null,
+                    "description": "Target surface normal vector [nx, ny, nz]",
+                    "title": "Normal"
+                },
+                "electron_temperature_eV": {
+                    "default": 2.0,
+                    "description": "Electron kinetic temperature of the impact plasma cloud [eV]",
+                    "exclusiveMinimum": 0.0,
+                    "title": "Electron Temperature Ev",
+                    "type": "number"
+                },
+                "ion_temperature_eV": {
+                    "anyOf": [
+                        {
+                            "exclusiveMinimum": 0.0,
+                            "type": "number"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "default": null,
+                    "description": "Ion kinetic temperature of the impact plasma cloud [eV] (defaults to electron_temperature_eV if omitted)",
+                    "title": "Ion Temperature Ev"
+                },
+                "temperature_eV": {
+                    "anyOf": [
+                        {
+                            "exclusiveMinimum": 0.0,
+                            "type": "number"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "default": null,
+                    "description": "Shorthand kinetic temperature for both electrons and ions in the impact cloud [eV]",
+                    "title": "Temperature Ev"
+                }
+            },
+            "title": "ImpactSchema",
+            "type": "object"
+        },
+        "NumericSchema": {
+            "additionalProperties": false,
+            "properties": {
+                "num_macroparticles": {
+                    "default": 20000,
+                    "description": "Total number of macroparticles in PIC simulation",
+                    "exclusiveMinimum": 0,
+                    "title": "Num Macroparticles",
+                    "type": "integer"
+                },
+                "time_step_s": {
+                    "default": 2e-09,
+                    "description": "Discrete simulation time step Delta t [s]",
+                    "exclusiveMinimum": 0.0,
+                    "title": "Time Step S",
+                    "type": "number"
+                },
+                "num_time_steps": {
+                    "anyOf": [
+                        {
+                            "exclusiveMinimum": 0,
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "default": 10000,
+                    "description": "Total number of simulation steps",
+                    "title": "Num Time Steps"
+                },
+                "simulation_duration_s": {
+                    "anyOf": [
+                        {
+                            "exclusiveMinimum": 0.0,
+                            "type": "number"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "default": null,
+                    "description": "Physical simulation duration in seconds (T = N_steps * dt)",
+                    "title": "Simulation Duration S"
+                },
+                "domain_half_length_m": {
+                    "description": "Domain half-lengths [Lx, Ly, Lz] in meters (or single float for isotropic)",
+                    "items": {
+                        "type": "number"
+                    },
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "title": "Domain Half Length M",
+                    "type": "array"
+                },
+                "grid_nodes": {
+                    "description": "Rectilinear grid resolution [Nx, Ny, Nz] (or single integer)",
+                    "items": {
+                        "type": "integer"
+                    },
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "title": "Grid Nodes",
+                    "type": "array"
+                },
+                "field_precision": {
+                    "default": "float32",
+                    "description": "Floating-point precision for 3D static background and weighting grids ('float32' saves 50% RAM)",
+                    "enum": [
+                        "float32",
+                        "float64"
+                    ],
+                    "title": "Field Precision",
+                    "type": "string"
+                }
+            },
+            "title": "NumericSchema",
+            "type": "object"
+        },
+        "PhysicsSchema": {
+            "additionalProperties": false,
+            "properties": {
+                "ion_mass_amu": {
+                    "default": 27.0,
+                    "description": "Ion mass in atomic mass units (e.g. 27.0 for Al)",
+                    "exclusiveMinimum": 0.0,
+                    "title": "Ion Mass Amu",
+                    "type": "number"
+                },
+                "impact_cloud_temperature_eV": {
+                    "anyOf": [
+                        {
+                            "exclusiveMinimum": 0.0,
+                            "type": "number"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "default": null,
+                    "description": "Legacy alias: Initial kinetic temperature of impact cloud [eV] (superseded by impact.electron_temperature_eV and impact.ion_temperature_eV)",
+                    "title": "Impact Cloud Temperature Ev"
+                },
+                "solar_wind_electron_temp_eV": {
+                    "default": 15.0,
+                    "description": "Ambient solar wind electron temperature [eV]",
+                    "exclusiveMinimum": 0.0,
+                    "title": "Solar Wind Electron Temp Ev",
+                    "type": "number"
+                },
+                "solar_wind_ion_temp_eV": {
+                    "anyOf": [
+                        {
+                            "exclusiveMinimum": 0.0,
+                            "type": "number"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "default": null,
+                    "description": "Ambient solar wind ion temperature [eV] (defaults to solar_wind_electron_temp_eV if omitted)",
+                    "title": "Solar Wind Ion Temp Ev"
+                },
+                "solar_wind_density_m3": {
+                    "default": 10000000.0,
+                    "description": "Ambient solar wind plasma density [m^-3]",
+                    "exclusiveMinimum": 0.0,
+                    "title": "Solar Wind Density M3",
+                    "type": "number"
+                },
+                "total_impact_charge_C": {
+                    "default": 5e-11,
+                    "description": "Total charge released by dust impact [C]",
+                    "exclusiveMinimum": 0.0,
+                    "title": "Total Impact Charge C",
+                    "type": "number"
+                },
+                "plasma_injection_mode": {
+                    "default": "point_cloud",
+                    "description": "Injection pattern: 'point_cloud' (impact spot) or 'homogeneous' (solar wind domain)",
+                    "enum": [
+                        "point_cloud",
+                        "homogeneous"
+                    ],
+                    "title": "Plasma Injection Mode",
+                    "type": "string"
+                },
+                "impact": {
+                    "$ref": "#/$defs/ImpactSchema",
+                    "description": "Dust grain impact trajectory, timing, and cloud temperatures"
+                },
+                "spacecraft_voltage_V": {
+                    "anyOf": [
+                        {
+                            "type": "number"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "default": null,
+                    "description": "Spacecraft body potential override [V]",
+                    "title": "Spacecraft Voltage V"
+                },
+                "antenna_capacitance_F": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "exclusiveMinimum": 0.0,
+                                "type": "number"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "default": null,
+                    "description": "Capacitances per antenna [F]",
+                    "title": "Antenna Capacitance F"
+                },
+                "antenna_resistance_Ohm": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "exclusiveMinimum": 0.0,
+                                "type": "number"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "default": null,
+                    "description": "Sheath resistances per antenna [Ohm]",
+                    "title": "Antenna Resistance Ohm"
+                },
+                "antenna_bias_voltage_V": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "type": "number"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "default": null,
+                    "description": "Bias potentials per antenna [V]",
+                    "title": "Antenna Bias Voltage V"
+                }
+            },
+            "title": "PhysicsSchema",
+            "type": "object"
+        },
+        "PlottingSchema": {
+            "additionalProperties": false,
+            "properties": {
+                "run_physical_simulation": {
+                    "default": true,
+                    "description": "Run PIC simulation solver",
+                    "title": "Run Physical Simulation",
+                    "type": "boolean"
+                },
+                "show_interactive_gui_windows": {
+                    "default": false,
+                    "description": "Open interactive Matplotlib windows",
+                    "title": "Show Interactive Gui Windows",
+                    "type": "boolean"
+                },
+                "save_plots_to_disk": {
+                    "default": true,
+                    "description": "Save static PNG/GIF plots to disk",
+                    "title": "Save Plots To Disk",
+                    "type": "boolean"
+                },
+                "export_csv_time_series": {
+                    "default": false,
+                    "description": "Export antenna currents/voltages to CSV",
+                    "title": "Export Csv Time Series",
+                    "type": "boolean"
+                },
+                "show_currents": {
+                    "default": true,
+                    "description": "Plot antenna currents and voltages",
+                    "title": "Show Currents",
+                    "type": "boolean"
+                },
+                "show_fields_slice": {
+                    "default": true,
+                    "description": "Generate potential slice animation",
+                    "title": "Show Fields Slice",
+                    "type": "boolean"
+                },
+                "show_potential_line_x": {
+                    "default": true,
+                    "description": "Plot electric potential along X-axis at t=0, T/2, 3T/4, T",
+                    "title": "Show Potential Line X",
+                    "type": "boolean"
+                },
+                "show_particles_3d": {
+                    "default": true,
+                    "description": "Generate 3D particle animation",
+                    "title": "Show Particles 3D",
+                    "type": "boolean"
+                },
+                "show_velocity_anim": {
+                    "default": true,
+                    "description": "Generate velocity phase space animation",
+                    "title": "Show Velocity Anim",
+                    "type": "boolean"
+                },
+                "output_format": {
+                    "default": "h5",
+                    "description": "Primary data storage format ('h5' or 'npz')",
+                    "enum": [
+                        "h5",
+                        "npz"
+                    ],
+                    "title": "Output Format",
+                    "type": "string"
+                },
+                "output_h5_filepath": {
+                    "default": "outputs/out_3d_vysledky.h5",
+                    "title": "Output H5 Filepath",
+                    "type": "string"
+                },
+                "output_npz_filepath": {
+                    "default": "outputs/out_3d_vysledky.npz",
+                    "title": "Output Npz Filepath",
+                    "type": "string"
+                },
+                "output_csv_filepath": {
+                    "default": "outputs/out_3d_vysledky_simulace.csv",
+                    "title": "Output Csv Filepath",
+                    "type": "string"
+                },
+                "enable_checkpointing": {
+                    "default": true,
+                    "description": "Enable periodic simulation state checkpoints",
+                    "title": "Enable Checkpointing",
+                    "type": "boolean"
+                },
+                "checkpoint_interval_steps": {
+                    "default": 500,
+                    "exclusiveMinimum": 0,
+                    "title": "Checkpoint Interval Steps",
+                    "type": "integer"
+                },
+                "export_vtk": {
+                    "default": false,
+                    "description": "Export time series to ParaView VTK/PVD files",
+                    "title": "Export Vtk",
+                    "type": "boolean"
+                },
+                "vtk_output_dir": {
+                    "default": "outputs/paraview_vtk",
+                    "title": "Vtk Output Dir",
+                    "type": "string"
+                },
+                "file_currents": {
+                    "default": "outputs/out_3d_proudy_napeti.png",
+                    "title": "File Currents",
+                    "type": "string"
+                },
+                "file_fields_anim": {
+                    "default": "outputs/out_3d_animace_pole_potencial.gif",
+                    "title": "File Fields Anim",
+                    "type": "string"
+                },
+                "file_potential_line_x": {
+                    "default": "outputs/out_3d_potencial_osa_x.png",
+                    "title": "File Potential Line X",
+                    "type": "string"
+                },
+                "file_particles_anim": {
+                    "default": "outputs/out_3d_animace_pozice_castic.gif",
+                    "title": "File Particles Anim",
+                    "type": "string"
+                },
+                "file_velocity_anim": {
+                    "default": "outputs/out_3d_animace_rychlosti.gif",
+                    "title": "File Velocity Anim",
+                    "type": "string"
+                }
+            },
+            "title": "PlottingSchema",
+            "type": "object"
+        },
+        "SpisAntennaSchema": {
+            "additionalProperties": false,
+            "properties": {
+                "weighting_file": {
+                    "description": "Path to antenna weighting potential VTK file",
+                    "title": "Weighting File",
+                    "type": "string"
+                },
+                "voltage_V": {
+                    "anyOf": [
+                        {
+                            "type": "number"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "default": null,
+                    "description": "Antenna bias potential [V]",
+                    "title": "Voltage V"
+                },
+                "capacitance_F": {
+                    "anyOf": [
+                        {
+                            "exclusiveMinimum": 0.0,
+                            "type": "number"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "default": null,
+                    "description": "Antenna input capacitance [F]",
+                    "title": "Capacitance F"
+                },
+                "resistance_Ohm": {
+                    "anyOf": [
+                        {
+                            "exclusiveMinimum": 0.0,
+                            "type": "number"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "default": null,
+                    "description": "Antenna input resistance [Ohm]",
+                    "title": "Resistance Ohm"
+                }
+            },
+            "required": [
+                "weighting_file"
+            ],
+            "title": "SpisAntennaSchema",
+            "type": "object"
+        },
+        "SpisGeometrySchema": {
+            "additionalProperties": false,
+            "properties": {
+                "background_potential_file": {
+                    "default": "inputs/spis_V_bg.vtk",
+                    "description": "VTK file with ambient electrostatic background potential",
+                    "title": "Background Potential File",
+                    "type": "string"
+                },
+                "spacecraft": {
+                    "$ref": "#/$defs/SpisSpacecraftSchema",
+                    "description": "Spacecraft body weighting field and mesh"
+                },
+                "antennas": {
+                    "description": "List of antenna definitions or VTK file paths",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/$defs/SpisAntennaSchema"
+                            },
+                            {
+                                "type": "string"
+                            }
+                        ]
+                    },
+                    "title": "Antennas",
+                    "type": "array"
+                },
+                "weighting_threshold": {
+                    "default": 0.85,
+                    "description": "Conductor voxelization threshold from weighting potential (0.0 < threshold <= 1.0)",
+                    "exclusiveMinimum": 0.0,
+                    "maximum": 1.0,
+                    "title": "Weighting Threshold",
+                    "type": "number"
+                },
+                "spacecraft_weighting_file": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "default": null,
+                    "title": "Spacecraft Weighting File"
+                },
+                "spacecraft_surface_mesh_file": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "default": null,
+                    "title": "Spacecraft Surface Mesh File"
+                },
+                "antenna_weighting_files": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "default": null,
+                    "title": "Antenna Weighting Files"
+                }
+            },
+            "title": "SpisGeometrySchema",
+            "type": "object"
+        },
+        "SpisSpacecraftSchema": {
+            "additionalProperties": false,
+            "properties": {
+                "weighting_file": {
+                    "default": "inputs/spis_Vw_body.vtk",
+                    "description": "Path to spacecraft Ramo-Shockley weighting potential VTK file",
+                    "title": "Weighting File",
+                    "type": "string"
+                },
+                "surface_mesh_file": {
+                    "default": "",
+                    "description": "Optional path to explicit surface mesh file (Gmsh, STL, VTK)",
+                    "title": "Surface Mesh File",
+                    "type": "string"
+                },
+                "voltage_V": {
+                    "anyOf": [
+                        {
+                            "type": "number"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "default": null,
+                    "description": "Equilibrium floating potential of spacecraft body [V]",
+                    "title": "Voltage V"
+                }
+            },
+            "title": "SpisSpacecraftSchema",
+            "type": "object"
+        },
+        "TogglesSchema": {
+            "additionalProperties": false,
+            "properties": {
+                "enable_spis_background_field": {
+                    "default": true,
+                    "description": "Include static background electric field in particle motion",
+                    "title": "Enable Spis Background Field",
+                    "type": "boolean"
+                },
+                "enable_plasma_self_field": {
+                    "default": true,
+                    "description": "Solve self-consistent Poisson space-charge potential",
+                    "title": "Enable Plasma Self Field",
+                    "type": "boolean"
+                },
+                "enable_antenna_particle_collection": {
+                    "default": true,
+                    "description": "Collect particles hitting antenna conductors and compute I_col",
+                    "title": "Enable Antenna Particle Collection",
+                    "type": "boolean"
+                },
+                "enable_rc_circuit_response": {
+                    "default": true,
+                    "description": "Integrate RC circuit differential equations for antenna voltages",
+                    "title": "Enable Rc Circuit Response",
+                    "type": "boolean"
+                },
+                "enable_antenna_bias_voltage": {
+                    "default": true,
+                    "description": "Initialize antenna bias voltages at t=0",
+                    "title": "Enable Antenna Bias Voltage",
+                    "type": "boolean"
+                },
+                "circuit_solver": {
+                    "default": "rk4",
+                    "description": "Circuit ODE numerical integration method ('rk4' or 'euler')",
+                    "enum": [
+                        "rk4",
+                        "euler"
+                    ],
+                    "title": "Circuit Solver",
+                    "type": "string"
+                },
+                "particle_boundary_mode": {
+                    "default": "open",
+                    "description": "Boundary condition for macroparticles at domain borders ('open' or 'periodic')",
+                    "enum": [
+                        "open",
+                        "periodic"
+                    ],
+                    "title": "Particle Boundary Mode",
+                    "type": "string"
+                },
+                "particle_spacecraft_mode": {
+                    "default": "absorb",
+                    "description": "Particle interaction mode on spacecraft surface ('absorb' or 'reflect')",
+                    "enum": [
+                        "absorb",
+                        "reflect"
+                    ],
+                    "title": "Particle Spacecraft Mode",
+                    "type": "string"
+                }
+            },
+            "title": "TogglesSchema",
+            "type": "object"
+        },
+        "VTKFilesSchema": {
+            "additionalProperties": false,
+            "properties": {
+                "spis_background_potential_file": {
+                    "default": "inputs/spis_V_bg.vtk",
+                    "title": "Spis Background Potential File",
+                    "type": "string"
+                },
+                "spacecraft_weighting_file": {
+                    "default": "inputs/spis_Vw_body.vtk",
+                    "title": "Spacecraft Weighting File",
+                    "type": "string"
+                },
+                "antenna_weighting_files": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "title": "Antenna Weighting Files",
+                    "type": "array"
+                }
+            },
+            "title": "VTKFilesSchema",
+            "type": "object"
+        }
+    },
+    "additionalProperties": false,
+    "description": "JSON Schema for DustImpact 3D PIC Simulation Configuration",
+    "properties": {
+        "$schema": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "default": null,
+            "description": "URI to JSON Schema",
+            "title": "$Schema"
+        },
+        "geometry": {
+            "$ref": "#/$defs/GeometrySchema",
+            "description": "Geometry setup"
+        },
+        "toggles": {
+            "$ref": "#/$defs/TogglesSchema",
+            "description": "Physics feature flags"
+        },
+        "physics": {
+            "$ref": "#/$defs/PhysicsSchema",
+            "description": "Plasma and impact parameters"
+        },
+        "numeric": {
+            "$ref": "#/$defs/NumericSchema",
+            "description": "Discretization and time stepping"
+        },
+        "plotting": {
+            "$ref": "#/$defs/PlottingSchema",
+            "description": "Outputs and visualization"
+        },
+        "vtk_files": {
+            "anyOf": [
+                {
+                    "$ref": "#/$defs/VTKFilesSchema"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "default": null
+        }
+    },
+    "title": "DustImpact3DConfig",
+    "type": "object"
+}
