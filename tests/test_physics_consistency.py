@@ -18,6 +18,7 @@ import numpy as np
 from dust_impact.physics.constants import e, m_e, eps_0
 from dust_impact.geometry.analytical import solve_laplace_dirichlet_3d
 from dust_impact.solver.config_loader import SimulationParams3D, SimulationToggles3D
+from dust_impact.solver.params import ImpactConfig
 from dust_impact.solver.ensemble import ParticleEnsemble
 from dust_impact.solver.field_solver import FieldSolver3D
 
@@ -54,14 +55,10 @@ def _single_ion_ensemble(position: np.ndarray) -> SimpleNamespace:
 
 class TestPhysicsConsistency(unittest.TestCase):
 
-    @unittest.expectedFailure
     def test_homogeneous_plasma_temperature(self):
         """
         A Maxwellian with temperature T has <v_x^2> = k_B T / m per component. The temperature
         measured from the sampled velocities must equal the configured solar wind temperatures.
-
-        KNOWN FAILURE: ParticleEnsemble samples sigma = v_th / sqrt(3) with v_th = sqrt(2 k_B T / m),
-        i.e. <v_x^2> = 2/3 k_B T / m, so the effective temperature is 2/3 of the configured one.
         """
         np.random.seed(3)
         Te_eV, Ti_eV = 15.0, 10.0
@@ -79,6 +76,55 @@ class TestPhysicsConsistency(unittest.TestCase):
 
         self.assertAlmostEqual(Te_meas / Te_eV, 1.0, delta=0.02)
         self.assertAlmostEqual(Ti_meas / Ti_eV, 1.0, delta=0.02)
+
+    def test_homogeneous_plasma_avoids_spacecraft(self):
+        """Homogeneous plasma must not be loaded into cells covered by the spacecraft mask."""
+        np.random.seed(5)
+        N = 10
+        params = _cubic_params(N, 1.0, num_macroparticles=20000, plasma_injection_mode="homogeneous")
+        X, Y, Z = np.meshgrid(params.x_grid, params.y_grid, params.z_grid, indexing='ij')
+        mask = X**2 + Y**2 + Z**2 <= 0.5**2
+        ens = ParticleEnsemble(params, mask, num_antennas=0)
+
+        idx = [
+            np.clip(((c - g[0]) / h).astype(int), 0, N - 1)
+            for c, g, h in ((ens.x_e, params.x_grid, params.dx),
+                            (ens.y_e, params.y_grid, params.dy),
+                            (ens.z_e, params.z_grid, params.dz))
+        ]
+        self.assertFalse(np.any(mask[idx[0], idx[1], idx[2]]))
+        np.testing.assert_array_equal(ens.x_e, ens.x_i)
+
+    def test_impact_cloud_half_maxwellian(self):
+        """
+        The impact cloud expands into the half-space above the surface. Its velocities must all
+        point away from the surface (v . n >= 0), keep m <v_k^2> = k_B T in every component
+        (separately for electrons and ions with their own temperatures), and have the
+        half-Maxwellian mean expansion velocity <v . n> = sqrt(2 k_B T / (pi m)).
+        """
+        np.random.seed(7)
+        Te_eV, Ti_eV = 4.0, 1.0
+        normal = np.array([-1.0, 2.0, 0.5])
+        params = _cubic_params(
+            8, 1.0,
+            num_macroparticles=200000,
+            plasma_injection_mode="point_cloud",
+            impact=ImpactConfig(electron_temperature_eV=Te_eV, ion_temperature_eV=Ti_eV),
+            impact_normal=list(normal),
+        )
+        ens = ParticleEnsemble(params, np.zeros((8, 8, 8), dtype=bool), num_antennas=0)
+        n = normal / np.linalg.norm(normal)
+
+        for label, v, m, T in (
+            ("electrons", np.column_stack([ens.vx_e, ens.vy_e, ens.vz_e]), m_e, Te_eV),
+            ("ions", np.column_stack([ens.vx_i, ens.vy_i, ens.vz_i]), params.m_i, Ti_eV),
+        ):
+            with self.subTest(species=label):
+                v_n = v @ n
+                self.assertGreaterEqual(v_n.min(), 0.0)
+                np.testing.assert_allclose(m * np.mean(v**2, axis=0) / e, T, rtol=0.02)
+                sigma = np.sqrt(e * T / m)
+                self.assertAlmostEqual(np.mean(v_n) / (sigma * np.sqrt(2.0 / np.pi)), 1.0, delta=0.01)
 
     def test_energy_conservation_in_static_potential(self):
         """

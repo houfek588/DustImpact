@@ -10,6 +10,7 @@ import numpy as np
 
 from dust_impact.physics.constants import e, m_e
 from dust_impact.physics.ramo_shockley import calc_induced_current_from_potential
+from dust_impact.physics.emissions import sample_maxwellian_velocities, sample_half_maxwellian_velocities
 from dust_impact.numerics.pushers import leapfrog_step_3d
 from dust_impact.solver.config_loader import SimulationParams3D
 from dust_impact.geometry.surface import check_wire_collision_3d
@@ -36,49 +37,26 @@ class ParticleEnsemble:
         self.toggles = toggles
         self.spacecraft_geometry = spacecraft_geometry
 
-        v_th_e = self.p.v_th_e
-        v_th_i = self.p.v_th_i
+        # The active temperatures (solar wind or impact cloud, depending on the injection mode)
+        # are encoded in the most probable speeds v_th = sqrt(2 e T / m) set by the configuration.
+        T_e_eV = m_e * self.p.v_th_e**2 / (2.0 * e)
+        T_i_eV = self.p.m_i * self.p.v_th_i**2 / (2.0 * e)
 
         mode = getattr(self.p, 'plasma_injection_mode', 'point_cloud')
 
         if mode == 'homogeneous':
             # 1. Homogeneous uniform spatial distribution across domain [-Lx, Lx], [-Ly, Ly], [-Lz, Lz]
-            def _sample_outside_spacecraft(n_pts):
-                pts = np.random.uniform(
-                    low=[-self.p.L_x, -self.p.L_y, -self.p.L_z],
-                    high=[self.p.L_x, self.p.L_y, self.p.L_z],
-                    size=(n_pts, 3)
-                )
-                for idx in range(n_pts):
-                    ix = np.clip(int((pts[idx, 0] - self.p.x_grid[0]) / self.p.dx), 0, self.p.Nx - 1)
-                    iy = np.clip(int((pts[idx, 1] - self.p.y_grid[0]) / self.p.dy), 0, self.p.Ny - 1)
-                    iz = np.clip(int((pts[idx, 2] - self.p.z_grid[0]) / self.p.dz), 0, self.p.Nz - 1)
-                    while self.spacecraft_mask_3d[ix, iy, iz]:
-                        pts[idx] = np.random.uniform(
-                            low=[-self.p.L_x, -self.p.L_y, -self.p.L_z],
-                            high=[self.p.L_x, self.p.L_y, self.p.L_z]
-                        )
-                        ix = np.clip(int((pts[idx, 0] - self.p.x_grid[0]) / self.p.dx), 0, self.p.Nx - 1)
-                        iy = np.clip(int((pts[idx, 1] - self.p.y_grid[0]) / self.p.dy), 0, self.p.Ny - 1)
-                        iz = np.clip(int((pts[idx, 2] - self.p.z_grid[0]) / self.p.dz), 0, self.p.Nz - 1)
-                return pts
-
-            pts_e = _sample_outside_spacecraft(self.p.N_particles)
+            pts_e = self._sample_outside_spacecraft(self.p.N_particles)
             pts_i = pts_e.copy()
 
             self.x_e, self.y_e, self.z_e = pts_e[:, 0], pts_e[:, 1], pts_e[:, 2]
             self.x_i, self.y_i, self.z_i = pts_i[:, 0], pts_i[:, 1], pts_i[:, 2]
 
-            sigma_v_e = v_th_e / np.sqrt(3.0)
-            sigma_v_i = v_th_i / np.sqrt(3.0)
-
-            self.vx_e = np.random.normal(0, sigma_v_e, self.p.N_particles)
-            self.vy_e = np.random.normal(0, sigma_v_e, self.p.N_particles)
-            self.vz_e = np.random.normal(0, sigma_v_e, self.p.N_particles)
-
-            self.vx_i = np.random.normal(0, sigma_v_i, self.p.N_particles)
-            self.vy_i = np.random.normal(0, sigma_v_i, self.p.N_particles)
-            self.vz_i = np.random.normal(0, sigma_v_i, self.p.N_particles)
+            # Isotropic Maxwellians of the solar wind temperatures
+            v_e = sample_maxwellian_velocities(self.p.N_particles, T_e_eV, m_e)
+            v_i = sample_maxwellian_velocities(self.p.N_particles, T_i_eV, self.p.m_i)
+            self.vx_e, self.vy_e, self.vz_e = v_e[:, 0], v_e[:, 1], v_e[:, 2]
+            self.vx_i, self.vy_i, self.vz_i = v_i[:, 0], v_i[:, 1], v_i[:, 2]
 
         else:
             # 2. Concentrated point cloud (dust impact expansion) mode
@@ -90,32 +68,11 @@ class ParticleEnsemble:
             else:
                 n = np.array([-0.7071, 0.7071, 0.0])
 
-            theta = np.arccos(np.clip(n[2], -1.0, 1.0))
-            phi = np.arctan2(n[1], n[0])
-
-            Rz = np.array([
-                [np.cos(phi), -np.sin(phi), 0],
-                [np.sin(phi), np.cos(phi), 0],
-                [0, 0, 1]
-            ])
-            Ry = np.array([
-                [np.cos(theta), 0, np.sin(theta)],
-                [0, 1, 0],
-                [-np.sin(theta), 0, np.cos(theta)]
-            ])
-            R = Rz @ Ry
-
-            v_z_prime_i = np.abs(np.random.normal(v_th_i, v_th_i / 2, self.p.N_particles))
-            v_x_prime_i = np.random.normal(0, v_th_i / 2, self.p.N_particles)
-            v_y_prime_i = np.random.normal(0, v_th_i / 2, self.p.N_particles)
-            v_rot_i = R @ np.vstack([v_x_prime_i, v_y_prime_i, v_z_prime_i])
-            self.vx_i, self.vy_i, self.vz_i = v_rot_i[0], v_rot_i[1], v_rot_i[2]
-
-            v_z_prime_e = np.abs(np.random.normal(v_th_e, v_th_e / 2, self.p.N_particles))
-            v_x_prime_e = np.random.normal(0, v_th_e / 2, self.p.N_particles)
-            v_y_prime_e = np.random.normal(0, v_th_e / 2, self.p.N_particles)
-            v_rot_e = R @ np.vstack([v_x_prime_e, v_y_prime_e, v_z_prime_e])
-            self.vx_e, self.vy_e, self.vz_e = v_rot_e[0], v_rot_e[1], v_rot_e[2]
+            # Half-Maxwellians of the impact cloud temperatures expanding away from the surface
+            v_i = sample_half_maxwellian_velocities(self.p.N_particles, T_i_eV, self.p.m_i, n)
+            v_e = sample_half_maxwellian_velocities(self.p.N_particles, T_e_eV, m_e, n)
+            self.vx_i, self.vy_i, self.vz_i = v_i[:, 0], v_i[:, 1], v_i[:, 2]
+            self.vx_e, self.vy_e, self.vz_e = v_e[:, 0], v_e[:, 1], v_e[:, 2]
 
             impact_point_val = getattr(self.p, 'impact_pos', getattr(self.p, 'impact_location_xyz_m', [0.0, 0.0, 0.0]))
             r0 = np.array(impact_point_val, dtype=float)
@@ -145,6 +102,38 @@ class ParticleEnsemble:
         self.was_outside_i = np.zeros((self.num_antennas, self.p.N_particles), dtype=bool)
 
         self.cloud_injected = False
+
+    def _sample_outside_spacecraft(self, n_pts: int) -> np.ndarray:
+        """
+        Samples points uniformly in the domain box, excluding cells covered by the spacecraft mask.
+
+        Rejection sampling is done block-wise: all points falling into masked cells are redrawn
+        together until none remains inside the spacecraft.
+
+        Parameters:
+        -----------
+        n_pts : int
+            Number of points.
+
+        Returns:
+        --------
+        pts : np.ndarray
+            Positions of shape (n_pts, 3) in metres.
+        """
+        low = np.array([-self.p.L_x, -self.p.L_y, -self.p.L_z])
+        high = np.array([self.p.L_x, self.p.L_y, self.p.L_z])
+        origin = np.array([self.p.x_grid[0], self.p.y_grid[0], self.p.z_grid[0]])
+        spacing = np.array([self.p.dx, self.p.dy, self.p.dz])
+        upper = np.array([self.p.Nx - 1, self.p.Ny - 1, self.p.Nz - 1])
+
+        pts = np.random.uniform(low=low, high=high, size=(n_pts, 3))
+        redraw = np.arange(n_pts)
+        while redraw.size > 0:
+            idx = np.clip(((pts[redraw] - origin) / spacing).astype(int), 0, upper)
+            inside = self.spacecraft_mask_3d[idx[:, 0], idx[:, 1], idx[:, 2]]
+            redraw = redraw[inside]
+            pts[redraw] = np.random.uniform(low=low, high=high, size=(redraw.size, 3))
+        return pts
 
     def inject_if_time(self, step: int, dt: float, t_delay: float) -> bool:
         """Activates particles if current simulation time exceeds t_delay."""

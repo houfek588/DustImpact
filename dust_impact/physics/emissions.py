@@ -1,12 +1,100 @@
 # -*- coding: utf-8 -*-
 """
 Physics of plasma cloud thermal velocity distributions and particle emissions.
-Half-Maxwellian / Rayleigh distributions for emitted electrons and ions.
+Maxwellian / half-Maxwellian distributions for plasma and emitted electrons and ions.
+
+Convention: a Maxwellian of temperature T has m <v_k^2> = k_B T in every Cartesian component k,
+i.e. the standard deviation sigma = sqrt(k_B T / m) = v_th / sqrt(2), where
+v_th = sqrt(2 k_B T / m) is the most probable speed used throughout the configuration.
+The half-Maxwellian keeps m <v_k^2> = k_B T (second moment about zero) of its parent Maxwellian.
 """
 
 import numpy as np
 from typing import Tuple
 from dust_impact.physics.constants import e, m_e, amu
+
+
+def maxwellian_sigma(T_eV: float, mass_kg: float) -> float:
+    """
+    Standard deviation of one Cartesian velocity component of a Maxwellian.
+
+    Parameters:
+    -----------
+    T_eV : float
+        Kinetic temperature in eV.
+    mass_kg : float
+        Particle mass in kg.
+
+    Returns:
+    --------
+    sigma : float
+        sqrt(e * T_eV / mass_kg) in m/s.
+    """
+    return float(np.sqrt(e * T_eV / mass_kg))
+
+
+def sample_maxwellian_velocities(N_particles: int, T_eV: float, mass_kg: float) -> np.ndarray:
+    """
+    Samples velocities from an isotropic, non-drifting 3D Maxwellian with temperature T_eV.
+
+    Every Cartesian component is Gaussian with zero mean and standard deviation
+    sqrt(e * T_eV / mass_kg), so that m <v_k^2> = e * T_eV and 1/2 m <|v|^2> = 3/2 e * T_eV.
+
+    Parameters:
+    -----------
+    N_particles : int
+        Number of particles.
+    T_eV : float
+        Kinetic temperature in eV.
+    mass_kg : float
+        Particle mass in kg.
+
+    Returns:
+    --------
+    v : np.ndarray
+        Velocities of shape (N_particles, 3) in m/s.
+    """
+    return np.random.normal(0.0, maxwellian_sigma(T_eV, mass_kg), (N_particles, 3))
+
+
+def sample_half_maxwellian_velocities(
+    N_particles: int, T_eV: float, mass_kg: float, normal: np.ndarray
+) -> np.ndarray:
+    """
+    Samples velocities from a 3D Maxwellian restricted to the half-space v . n >= 0.
+
+    Models a plasma cloud of temperature T_eV released from a surface with outward unit
+    normal n: an isotropic Maxwellian is sampled and every velocity pointing into the surface
+    is specularly reflected, v -> v - 2 (v . n) n. The reflection keeps the tangential components
+    Maxwellian and turns the normal component into |N(0, sigma)|, hence m <v_k^2> = e * T_eV holds
+    for every Cartesian component and the mean expansion velocity along n is sigma * sqrt(2 / pi).
+
+    Parameters:
+    -----------
+    N_particles : int
+        Number of particles.
+    T_eV : float
+        Kinetic temperature in eV.
+    mass_kg : float
+        Particle mass in kg.
+    normal : np.ndarray
+        Outward surface normal of shape (3,); it does not need to be normalised.
+
+    Returns:
+    --------
+    v : np.ndarray
+        Velocities of shape (N_particles, 3) in m/s, all with v . n >= 0.
+    """
+    n = np.asarray(normal, dtype=float)
+    n_norm = np.linalg.norm(n)
+    if n_norm == 0.0:
+        raise ValueError("Surface normal must be a non-zero vector")
+    n = n / n_norm
+
+    v = sample_maxwellian_velocities(N_particles, T_eV, mass_kg)
+    v_n = v @ n
+    v -= 2.0 * np.minimum(v_n, 0.0)[:, None] * n[None, :]
+    return v
 
 
 def generate_half_maxwellian_velocities(N_particles: int, T_eV: float, mass_kg: float) -> Tuple[np.ndarray, np.ndarray, float]:
