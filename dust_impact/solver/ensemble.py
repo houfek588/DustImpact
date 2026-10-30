@@ -9,7 +9,7 @@ from typing import Tuple, List, Optional, Any
 import numpy as np
 
 from dust_impact.physics.constants import e, m_e
-from dust_impact.physics.ramo_shockley import calc_induced_current
+from dust_impact.physics.ramo_shockley import calc_induced_current_from_potential
 from dust_impact.numerics.pushers import leapfrog_step_3d
 from dust_impact.solver.config_loader import SimulationParams3D
 from dust_impact.geometry.surface import check_wire_collision_3d
@@ -284,18 +284,39 @@ class ParticleEnsemble:
         Ewz_list: List[np.ndarray],
         enable_collection: bool = True,
         boundary_mode: Optional[str] = None,
+        Vw_list: Optional[List[np.ndarray]] = None,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Advances a single species by dt, handles CCD collisions with spacecraft,
         boundary escape / periodic wrapping, antenna collection, and computes induced / collected currents.
+
+        Antenna currents are evaluated from the weighting potentials Vw (Ramo-Shockley theorem in
+        its charge-conserving form Q_ind = q * Vw(r)), so that the total charge delivered to antenna a
+        by one macro-particle over its whole trajectory is exactly q * [Vw_a(r_end) - Vw_a(r_start)]:
+          - free particles:                induced  += q * [Vw_a(r^{n+1}) - Vw_a(r^n)] / dt
+          - collected by antenna a:        collected += q * [1 - Vw_a(r^n)] / dt (residual charge only)
+          - collected by another antenna,
+            or absorbed by the spacecraft: induced  += q * [0 - Vw_a(r^n)] / dt
+        The Ewx/Ewy/Ewz lists are kept in the signature for API compatibility only.
+
+        Returns:
+            (col_currs, ind_currs): collected and induced currents per antenna [A].
         """
         col_currs = np.zeros(self.num_antennas)
         ind_currs = np.zeros(self.num_antennas)
         if not np.any(active):
             return col_currs, ind_currs
+        if self.num_antennas > 0 and (Vw_list is None or len(Vw_list) < self.num_antennas):
+            raise ValueError("push_species requires one weighting potential grid (Vw_list) per antenna.")
 
         x_act, y_act, z_act = x[active].copy(), y[active].copy(), z[active].copy()
         ax, ay, az = field_solver.get_accel(x_act, y_act, z_act, mass, phys_charge)
+
+        # Weighting potentials at the pre-push positions r^n, one array per antenna
+        vw_old = [
+            field_solver.interp_field(x_act, y_act, z_act, Vw_list[a_idx])
+            for a_idx in range(self.num_antennas)
+        ]
 
         # Symplectic 3D Leapfrog pusher
         x[active], y[active], z[active], vx[active], vy[active], vz[active] = leapfrog_step_3d(
@@ -311,6 +332,7 @@ class ParticleEnsemble:
             new_active[global_active_idx[bad_pos]] = False
             valid_mask = ~bad_pos
             x_act, y_act, z_act = x_act[valid_mask], y_act[valid_mask], z_act[valid_mask]
+            vw_old = [v[valid_mask] for v in vw_old]
 
         if not np.any(new_active):
             active[:] = new_active
@@ -347,6 +369,8 @@ class ParticleEnsemble:
         else:
             new_active[destroyed_by_sc] = False
 
+        # Index of the antenna that collected each particle in this step (-1 = not collected)
+        landed_on = np.full(len(global_active_indices), -1, dtype=np.int64)
         for a_idx in range(self.num_antennas):
             ant_geom = (
                 self.antenna_geometries[a_idx]
@@ -379,18 +403,30 @@ class ParticleEnsemble:
                 global_active_idx = np.where(new_active)[0]
                 absorbed_global_indices = global_active_idx[crossed_ant]
 
-                col_currs[a_idx] = len(absorbed_global_indices) * macro_charge / self.p.dt
+                landed_on[np.searchsorted(global_active_indices, absorbed_global_indices)] = a_idx
                 new_active[absorbed_global_indices] = False
 
-            if np.any(new_active):
-                Ewx = field_solver.interp_field(x[new_active], y[new_active], z[new_active], Ewx_list[a_idx])
-                Ewy = field_solver.interp_field(x[new_active], y[new_active], z[new_active], Ewy_list[a_idx])
-                Ewz = field_solver.interp_field(x[new_active], y[new_active], z[new_active], Ewz_list[a_idx])
-
-                ind_currs[a_idx] = calc_induced_current(
-                    macro_charge, vx[new_active], vy[new_active], Ewx, Ewy,
-                    vz=vz[new_active], Ewz=Ewz
+        # Ramo-Shockley currents from the change of weighting potential over this step.
+        # Local arrays below are aligned with global_active_indices (particles active at r^n).
+        still_active = new_active[global_active_indices]
+        idx_still = global_active_indices[still_active]
+        for a_idx in range(self.num_antennas):
+            vw_new = np.zeros_like(vw_old[a_idx])
+            if len(idx_still) > 0:
+                vw_new[still_active] = field_solver.interp_field(
+                    x[idx_still], y[idx_still], z[idx_still], Vw_list[a_idx]
                 )
+            # Particles collected by this antenna end at Vw_a = 1; the residual charge is reported as collected
+            landed_here = landed_on == a_idx
+            vw_new[landed_here] = 1.0
+            # Particles absorbed by the spacecraft or another antenna end at Vw_a = 0 (vw_new already 0)
+            free_or_lost = ~landed_here
+            ind_currs[a_idx] = calc_induced_current_from_potential(
+                macro_charge, vw_old[a_idx][free_or_lost], vw_new[free_or_lost], self.p.dt
+            )
+            col_currs[a_idx] = calc_induced_current_from_potential(
+                macro_charge, vw_old[a_idx][landed_here], vw_new[landed_here], self.p.dt
+            )
 
         bnd_mode = str(
             boundary_mode

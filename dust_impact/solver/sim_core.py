@@ -117,7 +117,8 @@ class DustImpactSimulation3D:
         self.tot_curr = self.collector.tot_curr
         self.voltage_ant = self.collector.voltage_ant
 
-        # Weighting fields references
+        # Weighting potentials and fields references
+        self.Vw_grids = Vw_grids
         self.Ewx_list = Ewx_list
         self.Ewy_list = Ewy_list
         self.Ewz_list = Ewz_list
@@ -237,7 +238,8 @@ class DustImpactSimulation3D:
             x, y, z, vx, vy, vz, active, was_outside, mass, phys_charge, macro_charge,
             self.field_solver, self.antenna_masks_3d,
             self.Ewx_list, self.Ewy_list, self.Ewz_list,
-            enable_collection=enable_coll
+            enable_collection=enable_coll,
+            Vw_list=self.Vw_grids
         )
 
     def _save_history(self, current_time: float, stream_to_disk: bool = False) -> Dict[str, np.ndarray]:
@@ -361,7 +363,8 @@ class DustImpactSimulation3D:
                 self.field_solver, self.antenna_masks_3d,
                 self.Ewx_list, self.Ewy_list, self.Ewz_list,
                 enable_collection=enable_coll,
-                boundary_mode=bnd_mode
+                boundary_mode=bnd_mode,
+                Vw_list=self.Vw_grids
             )
             ci, ii = self.particles.push_species(
                 self.particles.x_i, self.particles.y_i, self.particles.z_i,
@@ -371,7 +374,8 @@ class DustImpactSimulation3D:
                 self.field_solver, self.antenna_masks_3d,
                 self.Ewx_list, self.Ewy_list, self.Ewz_list,
                 enable_collection=enable_coll,
-                boundary_mode=bnd_mode
+                boundary_mode=bnd_mode,
+                Vw_list=self.Vw_grids
             )
             self.collector.record_step_currents(step_idx, ce, ci, ie, ii)
 
