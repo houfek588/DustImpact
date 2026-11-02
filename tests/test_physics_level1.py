@@ -88,15 +88,10 @@ class TestPhysicsLevel1(unittest.TestCase):
         except Exception as err:
             print(f"Skipping plot save (headless/matplotlib error): {err}")
 
-    @unittest.expectedFailure
     def test_0d_charging_current_balance(self):
         """
         Verifies the 0D floating potential: the net current density f(V) = Je - Ji - Jph - Jse must
         vanish at V_eq, and V_eq must be a bracketed root (f changes sign around it).
-
-        KNOWN FAILURE: with the current charging.py model f(V) < 0 on the whole interval [-100, 100] V
-        (secondary emission is not suppressed for V > 0, so Je - Jse < 0), no root exists and
-        find_root_bisection silently returns the interval midpoint (25 V for Earth / Al).
         """
         V_eq = calculate_equilibrium_potential(ENV_EARTH, MAT_ALUMINIUM, verbose=False)
         J_scale = electron_thermal_current_density(ENV_EARTH.n, ENV_EARTH.Te_eV)
@@ -115,12 +110,17 @@ class TestPhysicsLevel1(unittest.TestCase):
 
     def test_charge_balance_in_3d_pic(self):
         """
-        Verifies charge conservation of the antenna signal in a full self-consistent 3D PIC run.
+        Verifies the charge bookkeeping of the antenna signal in a full self-consistent 3D PIC run.
 
         Ramo-Shockley theorem: the total charge delivered to an antenna equals
             Q = sum_p q_p * [Vw(r_p,end) - Vw(r_p,start)],
         with Vw(r_end) = 1 for particles collected by the antenna. The cloud is injected after a
         non-zero delay and expands under its own field, so collection, escape and induction all occur.
+
+        The solver accumulates q * dVw per step, so this identity holds to round-off by construction:
+        the test guards against double counting, lost steps (injection, removal, collection) and wrong
+        signs, not against an incorrect weighting potential. The physical correctness of Vw is covered
+        by the Green reciprocity test and by tests/test_weighting_potentials.py.
         """
         rng = np.random.default_rng(11)
         params = SimulationParams3D(

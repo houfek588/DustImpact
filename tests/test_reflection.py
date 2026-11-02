@@ -13,8 +13,8 @@ class TestParticleReflection(unittest.TestCase):
     def setUp(self):
         self.params = SimulationParams3D(
             num_macroparticles=10,
-            simulation_duration_s=1e-8,
-            time_step_s=1e-9,
+            simulation_duration_s=1e-7,
+            time_step_s=2e-8,
             grid_nodes_x=16,
             grid_nodes_y=16,
             grid_nodes_z=16,
@@ -100,6 +100,13 @@ class TestParticleReflection(unittest.TestCase):
         speed_oblique_new = np.sqrt(vx[0]**2 + vy[0]**2 + vz[0]**2)
         np.testing.assert_allclose(speed_oblique_new, speed_oblique_orig, rtol=1e-10)
 
+        # Specular law v' = v - 2 (v . n) n with the surface normal n at the corrected position:
+        # the tangential velocity is preserved and only the normal component flips sign
+        n = np.array([x[0], y[0], z[0]]) / np.sqrt(x[0]**2 + y[0]**2 + z[0]**2)
+        v_in = np.array([-3e5, -2e5, 1e5])
+        v_expected = v_in - 2.0 * np.dot(v_in, n) * n
+        np.testing.assert_allclose([vx[0], vy[0], vz[0]], v_expected, rtol=1e-10)
+
         # Normal at 45 deg is ~ (1/sqrt(2), 1/sqrt(2), 0)
         # Normal component of reflected velocity must be positive
         norm_v = (vx[0] * x[0] + vy[0] * y[0] + vz[0] * z[0]) / np.sqrt(x[0]**2 + y[0]**2 + z[0]**2)
@@ -126,11 +133,11 @@ class TestParticleReflection(unittest.TestCase):
         )
 
         # Place particle just outside moving into the spacecraft
-        # With dx = 0.4 m, start at x=1.2 m, move with vx = -7e8 m/s -> x_new = 0.5 m (hits mask)
+        # With dx = 0.4 m, start at x=1.2 m, move with vx = -3.5e7 m/s for dt = 20 ns -> x_new = 0.5 m (hits mask)
         ens_abs.x_e[0] = 1.2
         ens_abs.y_e[0] = 0.0
         ens_abs.z_e[0] = 0.0
-        ens_abs.vx_e[0] = -7e8
+        ens_abs.vx_e[0] = -3.5e7
         ens_abs.vy_e[0] = 0.0
         ens_abs.vz_e[0] = 0.0
         ens_abs.active_e[0] = True
@@ -161,7 +168,7 @@ class TestParticleReflection(unittest.TestCase):
         ens_refl.x_e[0] = 1.2
         ens_refl.y_e[0] = 0.0
         ens_refl.z_e[0] = 0.0
-        ens_refl.vx_e[0] = -7e8
+        ens_refl.vx_e[0] = -3.5e7
         ens_refl.vy_e[0] = 0.0
         ens_refl.vz_e[0] = 0.0
         ens_refl.active_e[0] = True

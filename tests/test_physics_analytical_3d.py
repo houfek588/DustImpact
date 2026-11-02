@@ -130,8 +130,9 @@ class TestPhysicsAnalytical3D(unittest.TestCase):
         correlation = np.corrcoef(I_num, I_exact)[0, 1]
 
         self.assertTrue(ens.active_i[0], "The ion must not hit the antenna in a flyby")
-        self.assertGreater(correlation, 0.995)
-        self.assertLess(rel_peak_err, 0.05)
+        # Measured: correlation 0.9993, peak error 0.24 % (trilinear interpolation of Vw, 49^3 grid)
+        self.assertGreater(correlation, 0.998)
+        self.assertLess(rel_peak_err, 0.01)
 
         self._log_result(
             "3D Ramo-Shockley Flyby Induced Current (push_species)",
@@ -146,14 +147,15 @@ class TestPhysicsAnalytical3D(unittest.TestCase):
         """
         Validates FieldSolver3D.solve_poisson (CIC deposition + Poisson solve + E = -grad V) via
         Gauss's law: the flux of E_self through any closed box around a charge cloud equals
-        Q_enclosed / eps_0, independently of the grounded outer boundary.
+        Q_enclosed / eps_0, independently of the grounded outer boundary. The smaller box cuts the
+        cloud at 3.2 sigma, so the enclosed rather than the total charge is the reference.
         """
         rng = np.random.default_rng(1)
         Np = 200000
         params = _cubic_params(41, 2.0, num_macroparticles=Np, total_impact_charge_C=1e-12)
         fs = _field_solver(params)
-        fs.solve_poisson(_ion_only_ensemble(rng.normal(0.0, 0.25, (Np, 3))))
-        Q_tot = Np * params.q_macro
+        positions = rng.normal(0.0, 0.25, (Np, 3))
+        fs.solve_poisson(_ion_only_ensemble(positions))
 
         centre = params.Nx // 2
         for half_cells in (8, 12):
@@ -167,9 +169,13 @@ class TestPhysicsAnalytical3D(unittest.TestCase):
                 + np.sum((fs.Ey_self[sl, i1, sl] - fs.Ey_self[sl, i0, sl]) * W)
                 + np.sum((fs.Ez_self[sl, sl, i1] - fs.Ez_self[sl, sl, i0]) * W)
             )
-            ratio = flux * eps_0 / Q_tot
+            # Enclosed charge: macro-particles inside the box
+            half_width = half_cells * params.dx
+            inside = np.all(np.abs(positions) < half_width, axis=1)
+            ratio = flux * eps_0 / (np.sum(inside) * params.q_macro)
             with self.subTest(box_half_width_m=half_cells * params.dx):
-                self.assertAlmostEqual(ratio, 1.0, delta=0.02)
+                # Measured |ratio - 1| ~ 1e-4
+                self.assertAlmostEqual(ratio, 1.0, delta=2e-3)
 
         self._log_result(
             "Gauss's Law for CIC Self-Field (FieldSolver3D)",
@@ -254,6 +260,26 @@ class TestPhysicsAnalytical3D(unittest.TestCase):
         self.assertGreater(conv_order, 1.85)
         self.assertLess(conv_order, 2.15)
 
+    def test_mms_electric_field_convergence_rate(self):
+        """
+        The particles are pushed by E = -grad V, not by V. The self-field returned by
+        FieldSolver3D.solve_poisson must converge to the exact field of the manufactured solution
+        with second order on the whole grid, including the boundary nodes.
+        """
+        errors = []
+        for N in (17, 33):
+            params, fs, V_exact, _ = self._solve_manufactured(N)
+            X, Y, Z = np.meshgrid(params.x_grid, params.y_grid, params.z_grid, indexing='ij')
+            k = np.pi / 2.0
+            Ex = 10.0 * k * np.sin(k * X) * np.cos(k * Y) * np.cos(k * Z)
+            Ez = 10.0 * k * np.cos(k * X) * np.cos(k * Y) * np.sin(k * Z)
+            err = max(np.max(np.abs(fs.Ex_self - Ex)), np.max(np.abs(fs.Ez_self - Ez)))
+            errors.append((params.dx, err))
+        (h1, err1), (h2, err2) = errors
+        conv_order = np.log(err1 / err2) / np.log(h1 / h2)
+        self.assertGreater(conv_order, 1.85)
+        self.assertLess(err2 / (10.0 * k), 2e-3)
+
     # =========================================================================
     # Test 5: Self-consistent electron plasma (Langmuir) oscillations
     # =========================================================================
@@ -331,6 +357,76 @@ class TestPhysicsAnalytical3D(unittest.TestCase):
             "PASS",
             f"omega_pe = {omega_pe:.4e} rad/s | fitted = {omega_fit:.4e} rad/s | "
             f"Relative Error = {rel_freq_err * 100:.2f}%"
+        )
+
+    # =========================================================================
+    # Test 6: Energy conservation of the self-consistent PIC cycle
+    # =========================================================================
+    def test_energy_conservation_resolved_thermal_plasma(self):
+        """
+        In a thermal plasma whose Debye length is resolved by the grid (dx / lambda_D ~ 0.4) the total
+        energy, kinetic energy of both species plus the field energy eps_0/2 * sum |E|^2 dV, must be
+        conserved by the PIC cycle. Particles are kept in the box by the periodic particle boundary
+        so that no energy leaves the domain.
+
+        For dx >> lambda_D the same setup heats up by the finite-grid instability (T_e grows from 1 eV
+        to 1.7 eV within 5 plasma periods at dx / lambda_D = 13); this is a resolution limit of the
+        scheme, not a defect, and dense impact clouds must be judged with it in mind.
+        """
+        np.random.seed(5)
+        n0, Te_eV, L, N = 1e9, 1.0, 1.0, 21
+        omega_pe = np.sqrt(n0 * e**2 / (eps_0 * m_e))
+        dt = 2.0 * np.pi / omega_pe / 40.0
+        params = _cubic_params(
+            N, L,
+            num_macroparticles=20000,
+            plasma_injection_mode="homogeneous",
+            solar_wind_density_m3=n0,
+            solar_wind_electron_temp_eV=Te_eV,
+            solar_wind_ion_temp_eV=Te_eV,
+            ion_mass_amu=1.0,
+            time_step_s=dt,
+            num_time_steps=120,
+            impact_time_delay_s=0.0,
+        )
+        lambda_D = np.sqrt(eps_0 * Te_eV / (n0 * e))
+        self.assertLess(params.dx / lambda_D, 0.5)
+
+        toggles = SimulationToggles3D(
+            enable_spis_background_field=False,
+            enable_antenna_particle_collection=False,
+            enable_plasma_self_field=True,
+            particle_boundary_mode="periodic",
+        )
+        shape = (N, N, N)
+        zeros = np.zeros(shape)
+        with contextlib.redirect_stdout(io.StringIO()):
+            sim = DustImpactSimulation3D(
+                params, toggles, zeros, [zeros.copy()], zeros, zeros, zeros,
+                [zeros], [zeros], [zeros], [np.zeros(shape, dtype=bool)], np.zeros(shape, dtype=bool)
+            )
+        ens, fs = sim.particles, sim.field_solver
+        weight = params.q_macro / e
+        dV = params.dx * params.dy * params.dz
+
+        energy = np.zeros(params.steps)
+        with contextlib.redirect_stdout(io.StringIO()):
+            for step in range(params.steps):
+                sim.step(step)
+                K_e = 0.5 * weight * m_e * np.sum(ens.vx_e**2 + ens.vy_e**2 + ens.vz_e**2)
+                K_i = 0.5 * weight * params.m_i * np.sum(ens.vx_i**2 + ens.vy_i**2 + ens.vz_i**2)
+                W = 0.5 * eps_0 * np.sum(fs.Ex_self**2 + fs.Ey_self**2 + fs.Ez_self**2) * dV
+                energy[step] = K_e + K_i + W
+
+        self.assertTrue(np.all(ens.active_e) and np.all(ens.active_i))
+        rel_dev = np.max(np.abs(energy - energy[0])) / energy[0]
+        # Measured 3e-4; a self-field scaled by 3 gives 7e-3
+        self.assertLess(rel_dev, 2e-3)
+
+        self._log_result(
+            "Energy Conservation, Resolved Thermal Plasma (3D PIC)",
+            "PASS",
+            f"dx/lambda_D = {params.dx / lambda_D:.2f} | max relative energy deviation = {rel_dev:.2e}"
         )
 
 
