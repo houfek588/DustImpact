@@ -159,45 +159,52 @@ def extract_enclosed_conductor_mask(
 def extract_antenna_bias_from_spis(
     mesh_bg: Any,
     ant_mesh_file: str,
-    default_bias: float = 0.0
-) -> float:
+    default_bias: Optional[float] = 0.0,
+    surface_fraction: float = 0.999
+) -> Optional[float]:
     """
-    Extracts equilibrium potential of an antenna directly by averaging background potential
-    over points where antenna weighting field is high (~0.8 of peak).
+    Extracts the potential of a conductor (antenna or spacecraft body) from the SPIS background.
+
+    SPIS writes the background potential and the weighting potentials on the same volume mesh.
+    The conductor surface consists of the mesh points where its weighting potential reaches its peak
+    (Vw = 1); the background potential is constant there and equals the conductor potential. Points
+    with a lower weighting potential lie in the surrounding plasma and are excluded.
 
     Parameters
     ----------
     mesh_bg : pyvista.DataSet
         SPIS background potential mesh.
     ant_mesh_file : str
-        Path to antenna weighting field VTK.
-    default_bias : float
-        Fallback bias if extraction fails.
+        Path to the weighting potential VTK of the conductor.
+    default_bias : float or None
+        Returned if the extraction fails or the two meshes do not share their points.
+    surface_fraction : float
+        Points with Vw >= surface_fraction * max(Vw) are taken as the conductor surface.
 
     Returns
     -------
-    float
-        Equilibrium floating potential of the antenna.
+    float or None
+        Mean background potential on the conductor surface [V].
     """
     if mesh_bg is None or not HAS_PYVISTA:
         return default_bias
 
     try:
         mesh_w = read_spis_mesh(ant_mesh_file)
+        if mesh_w.n_points != mesh_bg.n_points or not np.allclose(mesh_w.points, mesh_bg.points):
+            return default_bias
         w_keys = list(mesh_w.point_data.keys())
         key_w = w_keys[0] if w_keys else 'Potential'
-
-        vw_pts = mesh_w.point_data[key_w]
+        vw_pts = np.asarray(mesh_w.point_data[key_w])
         v_max_w = np.nanmax(vw_pts)
 
         bg_keys = list(mesh_bg.point_data.keys())
         key_bg = bg_keys[0] if bg_keys else 'Potential'
 
-        if v_max_w > 0:
-            surf_pts_idx = np.where(vw_pts >= 0.8 * v_max_w)[0]
-            if len(surf_pts_idx) > 0 and key_bg in mesh_bg.point_data:
-                v_bg_surf = mesh_bg.point_data[key_bg][surf_pts_idx]
-                return float(np.nanmean(v_bg_surf))
+        if v_max_w > 0 and key_bg in mesh_bg.point_data:
+            surf_pts_idx = np.where(vw_pts >= surface_fraction * v_max_w)[0]
+            if len(surf_pts_idx) > 0:
+                return float(np.nanmean(np.asarray(mesh_bg.point_data[key_bg])[surf_pts_idx]))
     except Exception:
         pass
 

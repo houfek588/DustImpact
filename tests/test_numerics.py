@@ -4,12 +4,14 @@ Unit tests for dust_impact.numerics module:
 - Cloud-in-Cell (CIC) trilinear charge deposition
 - Trilinear grid-to-particle interpolation
 - Boris/Leapfrog pusher
+- Laplace solver with eliminated Dirichlet nodes
 """
 
 import unittest
 import numpy as np
 from dust_impact.numerics.interpolators import deposit_charge_cic_3d, interp_field_3d
 from dust_impact.numerics.pushers import leapfrog_step_3d, check_cfl_condition
+from dust_impact.numerics.poisson import DirichletLaplaceSolver3D
 
 
 class TestNumerics(unittest.TestCase):
@@ -201,6 +203,54 @@ class TestNumerics(unittest.TestCase):
         v_expected = (I0 * t_final) / C
         v_sim = collector.voltage_ant[0, steps - 1]
         self.assertAlmostEqual(v_sim, v_expected, places=12)
+
+
+class TestDirichletLaplaceSolver(unittest.TestCase):
+    """DirichletLaplaceSolver3D against fields that the 7-point stencil reproduces exactly."""
+
+    def setUp(self):
+        N = 21
+        x = np.linspace(-1.0, 1.0, N)
+        y = np.linspace(-1.5, 1.5, N)
+        self.h = (x[1] - x[0], y[1] - y[0], x[1] - x[0])
+        self.X, self.Y, self.Z = np.meshgrid(x, y, x, indexing='ij')
+        self.fixed = np.zeros((N, N, N), dtype=bool)
+        self.fixed[[0, -1], :, :] = True
+        self.fixed[:, [0, -1], :] = True
+        self.fixed[:, :, [0, -1]] = True
+        # Interior conductor: a ball of radius 0.3 m
+        self.fixed |= self.X**2 + self.Y**2 + self.Z**2 < 0.3**2
+        self.solver = DirichletLaplaceSolver3D(self.fixed, self.h)
+
+    def test_reproduces_discrete_harmonic_polynomial(self):
+        """x^2 - z^2 + 3xyz has zero 7-point Laplacian on any grid, so it is the exact discrete solution."""
+        V = self.X**2 - self.Z**2 + 3.0 * self.X * self.Y * self.Z
+        np.testing.assert_allclose(self.solver.solve(V), V, atol=1e-7)
+
+    def test_enforce_sets_dirichlet_values_and_keeps_laplacian(self):
+        """The harmonic correction takes the target on fixed nodes and leaves the discrete Laplacian unchanged."""
+        rng = np.random.default_rng(1)
+        field = rng.normal(size=self.X.shape)
+        target = rng.normal(size=self.X.shape)
+        out = self.solver.enforce(field, target)
+        np.testing.assert_allclose(out[self.fixed], target[self.fixed], atol=1e-14)
+
+        def lap(V):
+            hx, hy, hz = self.h
+            return ((V[2:, 1:-1, 1:-1] - 2 * V[1:-1, 1:-1, 1:-1] + V[:-2, 1:-1, 1:-1]) / hx**2
+                    + (V[1:-1, 2:, 1:-1] - 2 * V[1:-1, 1:-1, 1:-1] + V[1:-1, :-2, 1:-1]) / hy**2
+                    + (V[1:-1, 1:-1, 2:] - 2 * V[1:-1, 1:-1, 1:-1] + V[1:-1, 1:-1, :-2]) / hz**2)
+
+        free = ~self.fixed[1:-1, 1:-1, 1:-1]
+        scale = np.max(np.abs(lap(field)[free]))
+        np.testing.assert_allclose(lap(out)[free], lap(field)[free], atol=1e-6 * scale)
+
+    def test_rejects_open_outer_boundary(self):
+        """Boundary nodes have incomplete stencils, so they must be Dirichlet nodes."""
+        fixed = self.fixed.copy()
+        fixed[0, 5, 5] = False
+        with self.assertRaises(ValueError):
+            DirichletLaplaceSolver3D(fixed, self.h)
 
 
 if __name__ == "__main__":

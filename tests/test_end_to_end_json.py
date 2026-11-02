@@ -169,22 +169,11 @@ class TestEndToEndSpis(_EndToEndRunMixin, unittest.TestCase):
     """
     config.json: production SPIS geometry (VTK background and weighting potentials).
 
-    KNOWN FAILURES (see also tests/test_weighting_potentials.py):
-      * the antenna bias is read exactly from the SPIS mesh (~11.4 V), but the background interpolated
-        onto the grid holds the antenna nodes at 7.3-9.2 V and one antenna mask overlaps the spacecraft
-        (25 V), so the antennas are neither equipotential nor at their circuit voltage;
-      * the SPIS weighting potentials do not vanish on the spacecraft, so the antenna perturbation
-        Sum dV_a Vw_a shifts the spacecraft potential by up to ~10 mV.
+    The configured spacecraft potential (25 V) differs from the SPIS solution (8.9 V) and the thin
+    antennas are under-resolved on the PIC grid, so this run exercises the background shift and the
+    harmonic correction that puts every conductor at its potential.
     """
     SOURCE = "config.json"
-
-    @unittest.expectedFailure
-    def test_antennas_are_at_circuit_voltage(self):
-        super().test_antennas_are_at_circuit_voltage()
-
-    @unittest.expectedFailure
-    def test_spacecraft_is_at_configured_potential(self):
-        super().test_spacecraft_is_at_configured_potential()
 
 
 class TestEndToEndFloatingSpacecraft(unittest.TestCase):

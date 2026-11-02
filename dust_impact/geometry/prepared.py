@@ -19,6 +19,7 @@ except ImportError:
 from dust_impact.geometry.voxelizer import detect_metal_mask_3d
 from dust_impact.geometry.surface import compute_impact_intersection_and_normal
 from dust_impact.geometry.analytical import generate_synthetic_analytical_fields
+from dust_impact.numerics.poisson import DirichletLaplaceSolver3D
 from dust_impact.geometry.spis_loader import (
     read_spis_mesh,
     extract_potential_from_mesh,
@@ -214,10 +215,9 @@ def build_simulation_geometry(params: Any) -> PreparedGeometry3D:
 
     # 2. Load weighting fields for all antennas
     Vw_grids = []
-    Ewx_list, Ewy_list, Ewz_list = [], [], []
     antenna_masks_3d = []
-
-    X_mat, Y_mat, Z_mat = np.meshgrid(params.x_grid, params.y_grid, params.z_grid, indexing='ij')
+    # Nodes already assigned to a conductor; the conductor masks must be disjoint
+    occupied = spacecraft_mask_3d.copy()
 
     for i, vtk_file in enumerate(ant_files):
         mesh_ant = None
@@ -250,66 +250,104 @@ def build_simulation_geometry(params: Any) -> PreparedGeometry3D:
             adaptive_thresh = max(0.2, 0.5 * np.nanmax(np.abs(Vw)))
             mask = (np.abs(Vw) >= adaptive_thresh)
 
-        Vw[mask] = 1.0
+        # A node shared with the spacecraft (or an earlier antenna) stays with that conductor
+        overlap = int(np.sum(mask & occupied))
+        if overlap:
+            print(f"  -> Anténa {i + 1}: {overlap} uzlů masky leží v jiném vodiči, odebírám je z masky antény.")
+        mask = mask & ~occupied
+        occupied |= mask
+
         Vw_grids.append(Vw)
-
-        Ewx, Ewy, Ewz = np.gradient(-Vw, params.dx, params.dy, params.dz)
-        Ewx[mask] = 0.0
-        Ewy[mask] = 0.0
-        Ewz[mask] = 0.0
-
         antenna_masks_3d.append(mask)
-        Ewx_list.append(Ewx)
-        Ewy_list.append(Ewy)
-        Ewz_list.append(Ewz)
 
-    # 3. Load or synthesize background field via superposition (spacecraft + antennas)
+    # 3. Conductor potentials: spacecraft V_sc and antenna reference biases
     mesh_bg = None
     V_bg_grid = np.zeros((Nx, Ny, Nz))
     V_sc = getattr(params, 'spacecraft_voltage_V', params.Vf)
     if V_sc is None:
         V_sc = params.Vf
+    V_sc = float(V_sc)
 
     if bg_file and (os.path.exists(bg_file) or os.path.exists(os.path.join("inputs", bg_file))):
         try:
             mesh_bg = read_spis_mesh(bg_file)
             sampled_bg = pic_grid.sample(mesh_bg)
-            pot_data = extract_potential_from_mesh(sampled_bg, bg_file)
-            V_bg_grid = pot_data.reshape((Nx, Ny, Nz))
-            V_bg_grid[spacecraft_mask_3d] = float(V_sc)
-            print(f"  -> Pozadí načteno z {bg_file}. Rozsah potenciálu: {np.nanmin(V_bg_grid):.2f} až {np.nanmax(V_bg_grid):.2f} V")
+            V_bg_grid = np.nan_to_num(extract_potential_from_mesh(sampled_bg, bg_file).reshape((Nx, Ny, Nz)))
+            print(f"  -> Pozadí načteno z {bg_file}. Rozsah potenciálu: {np.min(V_bg_grid):.2f} až {np.max(V_bg_grid):.2f} V")
         except Exception as e:
             print(f"[UPOZORNĚNÍ] Nelze načíst pozadí z '{bg_file}' ({e}). Nastavuji počáteční pozadí na 0.0 V.")
             mesh_bg = None
             V_bg_grid = np.zeros((Nx, Ny, Nz))
+
+    configured_biases = getattr(params, 'antenna_bias_voltage_V', getattr(params, 'V_bias', []))
+    antenna_biases = []
+    for i, vtk_file in enumerate(ant_files):
+        v_ant = extract_antenna_bias_from_spis(mesh_bg, vtk_file, default_bias=None) if mesh_bg is not None else None
+        if v_ant is not None:
+            print(f"  -> Anténa {i + 1}: Rovnovážný potenciál načten přímo ze SPIS VTK: {v_ant:.3f} V")
+        elif i < len(configured_biases):
+            v_ant = configured_biases[i]
+            print(f"  -> Anténa {i + 1}: Používám zadaný potenciál z parametrů: {v_ant:.3f} V")
+        else:
+            v_ant = getattr(params, 'Vf_antenne', 0.0)
+            print(f"  -> Anténa {i + 1}: Používám plovoucí potenciál: {v_ant:.3f} V")
+        antenna_biases.append(float(v_ant))
+
+    # 4. Weighting potentials on the PIC grid. The self-field solver grounds the outer boundary and all
+    # conductors, so Ramo-Shockley consistency requires Vw_a = 1 on antenna a and Vw_a = 0 on the other
+    # conductors and on the outer boundary. The sampled SPIS fields violate this (thin conductors are
+    # under-resolved and the SPIS domain is larger than the PIC box); a harmonic correction enforces the
+    # Dirichlet values and leaves the Laplacian of the sampled field unchanged.
+    conductor_nodes = occupied
+    fixed_nodes = conductor_nodes.copy()
+    fixed_nodes[[0, -1], :, :] = True
+    fixed_nodes[:, [0, -1], :] = True
+    fixed_nodes[:, :, [0, -1]] = True
+    laplace = DirichletLaplaceSolver3D(fixed_nodes, (params.dx, params.dy, params.dz))
+
+    # Vw_body only shapes the background potential (no Ramo signal is taken from the spacecraft), so it
+    # keeps its sampled values on the outer boundary and is only made exact on the conductors
+    Vw_body = laplace.enforce(Vw_body, np.where(conductor_nodes, spacecraft_mask_3d, Vw_body))
+    Vw_grids = [laplace.enforce(Vw, mask.astype(np.float64)) for Vw, mask in zip(Vw_grids, antenna_masks_3d)]
+
+    Ewx_list, Ewy_list, Ewz_list = [], [], []
+    for Vw, mask in zip(Vw_grids, antenna_masks_3d):
+        Ewx, Ewy, Ewz = np.gradient(-Vw, params.dx, params.dy, params.dz)
+        Ewx[mask] = 0.0
+        Ewy[mask] = 0.0
+        Ewz[mask] = 0.0
+        Ewx_list.append(Ewx)
+        Ewy_list.append(Ewy)
+        Ewz_list.append(Ewz)
+
+    # 5. Background potential: every conductor at its potential, V_bg = V_sc on the spacecraft and the
+    # reference bias on each antenna (FieldSolver3D adds only the deviation from this bias).
+    conductor_potentials = np.zeros((Nx, Ny, Nz))
+    conductor_potentials[spacecraft_mask_3d] = V_sc
+    for mask, v_ant in zip(antenna_masks_3d, antenna_biases):
+        conductor_potentials[mask] = v_ant
+
+    if mesh_bg is not None:
+        # SPIS solved the plasma for its own spacecraft potential; a different configured V_sc is
+        # superposed through the vacuum response (V_sc - V_sc,SPIS) * Vw_body
+        V_sc_spis = extract_antenna_bias_from_spis(mesh_bg, sc_file, default_bias=None) if sc_file else None
+        if V_sc_spis is not None and abs(V_sc - V_sc_spis) > 1e-6:
+            print(f"[UPOZORNĚNÍ] Potenciál sondy {V_sc:.3f} V se liší od řešení SPIS ({V_sc_spis:.3f} V); "
+                  f"pozadí posouvám o ({V_sc - V_sc_spis:+.3f} V) * Vw_body.")
+            V_bg_grid = V_bg_grid + (V_sc - V_sc_spis) * Vw_body
+        # The outer boundary keeps the sampled SPIS values, the conductors take their potentials
+        V_bg_grid = laplace.enforce(V_bg_grid, np.where(conductor_nodes, conductor_potentials, V_bg_grid))
     else:
-        # Spacecraft body contribution
-        if abs(V_sc) > 1e-6 and np.any(Vw_body != 0.0):
-            V_bg_grid += float(V_sc) * Vw_body
-        elif abs(V_sc) > 1e-6:
-            r_mat = np.sqrt(X_mat**2 + Y_mat**2 + Z_mat**2)
-            V_bg_grid += float(V_sc) * np.exp(-r_mat / params.debye_length)
-
-        # Antenna weighting fields contribution
-        configured_biases = getattr(params, 'antenna_bias_voltage_V', getattr(params, 'V_bias', []))
-        added_antennas = 0
-        for i, Vw_ant in enumerate(Vw_grids):
-            v_ant = configured_biases[i] if i < len(configured_biases) else getattr(params, 'Vf_antenne', 0.0)
-            if abs(v_ant) > 1e-6 and np.any(Vw_ant != 0.0):
-                V_bg_grid += float(v_ant) * Vw_ant
-                added_antennas += 1
-
-        V_bg_grid[spacecraft_mask_3d] = float(V_sc)
-        for i in range(len(antenna_masks_3d)):
-            v_ant = configured_biases[i] if i < len(configured_biases) else getattr(params, 'Vf_antenne', 0.0)
-            V_bg_grid[antenna_masks_3d[i]] = float(v_ant)
-
-        if abs(V_sc) > 1e-6 or added_antennas > 0:
+        # Superposition of the conductor potentials; exact on conductors and zero on the outer boundary
+        V_bg_grid = V_sc * Vw_body
+        for Vw, v_ant in zip(Vw_grids, antenna_biases):
+            V_bg_grid = V_bg_grid + v_ant * Vw
+        if abs(V_sc) > 1e-6 or any(abs(v) > 1e-6 for v in antenna_biases):
             print(f"  -> Soubor pozadí nezadán: Elektrostatické pozadí vygenerováno superpozicí tělesa sondy (V_sc = {V_sc:.3f} V) a {len(ant_files)} antén.")
         else:
             print(f"  -> Soubor pozadí nezadán a potenciály jsou 0.0 V. Počáteční elektrostatické pozadí je nastaveno na 0.0 V.")
 
-    # 4. Impact intersection and surface normal (only for localized dust impact)
+    # 6. Impact intersection and surface normal (only for localized dust impact)
     is_homogeneous = getattr(params, 'plasma_injection_mode', 'point_cloud') == 'homogeneous'
     if not is_homogeneous:
         impact_pt, normal_vec = compute_impact_intersection_and_normal(
@@ -321,48 +359,20 @@ def build_simulation_geometry(params: Any) -> PreparedGeometry3D:
         impact_pos = None
         impact_normal = None
 
-    # 5. Background electric field
+    # 7. Background electric field
     if np.any(V_bg_grid != 0.0):
         Ex_bg, Ey_bg, Ez_bg = np.gradient(-V_bg_grid, params.dx, params.dy, params.dz)
-        Ex_bg[spacecraft_mask_3d] = 0.0
-        Ey_bg[spacecraft_mask_3d] = 0.0
-        Ez_bg[spacecraft_mask_3d] = 0.0
-        for mask in antenna_masks_3d:
-            Ex_bg[mask] = 0.0
-            Ey_bg[mask] = 0.0
-            Ez_bg[mask] = 0.0
+        Ex_bg[conductor_nodes] = 0.0
+        Ey_bg[conductor_nodes] = 0.0
+        Ez_bg[conductor_nodes] = 0.0
     else:
         Ex_bg = np.zeros((Nx, Ny, Nz))
         Ey_bg = np.zeros((Nx, Ny, Nz))
         Ez_bg = np.zeros((Nx, Ny, Nz))
 
-    # 6. Extract antenna equilibrium potentials
-    spis_v_bias = []
-    for i, vtk_file in enumerate(ant_files):
-        extracted = False
-        if mesh_bg is not None:
-            v_ant_exact = extract_antenna_bias_from_spis(mesh_bg, vtk_file, default_bias=None)
-            if v_ant_exact is not None:
-                spis_v_bias.append(v_ant_exact)
-                print(f"  -> Anténa {i + 1}: Rovnovážný potenciál načten přímo ze SPIS VTK: {v_ant_exact:.3f} V")
-                extracted = True
-
-        if not extracted:
-            if i < len(Vw_grids) and np.any(antenna_masks_3d[i]) and np.any(V_bg_grid != 0.0):
-                v_ant_val = float(np.nanmax(V_bg_grid[antenna_masks_3d[i]]))
-                spis_v_bias.append(v_ant_val)
-                print(f"  -> Anténa {i + 1}: Rovnovážný potenciál načten z mřížky: {v_ant_val:.3f} V")
-            elif i < len(params.antenna_bias_voltage_V) and params.antenna_bias_voltage_V[i] != 0.0:
-                spis_v_bias.append(params.antenna_bias_voltage_V[i])
-                print(f"  -> Anténa {i + 1}: Používám zadaný potenciál z parametrů: {params.antenna_bias_voltage_V[i]:.3f} V")
-            else:
-                v_f_ant = getattr(params, 'Vf_antenne', 0.0)
-                spis_v_bias.append(v_f_ant)
-                print(f"  -> Anténa {i + 1}: Používám plovoucí potenciál: {v_f_ant:.3f} V")
-
-    if spis_v_bias:
-        params.antenna_bias_voltage_V = spis_v_bias
-        params.V_bias = spis_v_bias
+    if antenna_biases:
+        params.antenna_bias_voltage_V = antenna_biases
+        params.V_bias = antenna_biases
 
     target_dtype = np.float32 if getattr(params, 'field_precision', 'float32') == 'float32' else np.float64
     V_bg_grid = np.ascontiguousarray(V_bg_grid, dtype=target_dtype)

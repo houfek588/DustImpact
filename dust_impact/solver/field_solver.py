@@ -12,7 +12,7 @@ import scipy.sparse.linalg as spla
 
 from dust_impact.physics.constants import eps_0
 from dust_impact.numerics.interpolators import interp_field_3d, deposit_charge_cic_3d
-from dust_impact.numerics.poisson import build_pyamg_solver, HAS_PYAMG
+from dust_impact.numerics.poisson import build_pyamg_solver, assemble_negative_laplacian_3d, HAS_PYAMG
 from dust_impact.solver.config_loader import SimulationParams3D, SimulationToggles3D
 
 
@@ -87,16 +87,7 @@ class FieldSolver3D:
         print(f"=== Inicializace Poissonova řešiče (3D) ===")
         print(f"  -> Celkový počet uzlů: {N_tot}")
 
-        def second_difference(n: int, h: float) -> sp.csr_matrix:
-            ones = np.ones(n)
-            return sp.diags([-ones[:-1], 2.0 * ones, -ones[:-1]], [-1, 0, 1], format='csr') / h ** 2
-
-        # Row-major (C-order) flattening: index = i * Ny * Nz + j * Nz + k, hence x is the outermost factor
-        A_full = sp.kronsum(
-            sp.kronsum(second_difference(Nz, self.p.dz), second_difference(Ny, self.p.dy)),
-            second_difference(Nx, self.p.dx),
-            format='csr',
-        )
+        A_full = assemble_negative_laplacian_3d(Nx, Ny, Nz, self.p.dx, self.p.dy, self.p.dz)
 
         dirichlet = np.zeros((Nx, Ny, Nz), dtype=bool)
         dirichlet[[0, -1], :, :] = True

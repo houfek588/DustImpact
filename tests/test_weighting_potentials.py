@@ -101,34 +101,60 @@ class TestWeightingPotentials(unittest.TestCase):
         )
         self._assert_ramo_conditions(report, tol=1e-6)
 
-    @unittest.expectedFailure
+    @classmethod
+    def _spis_geometry(cls):
+        """SPIS geometry of config.json (|x| <= 10 m, so no conductor is cut by the box) on a 40^3 grid."""
+        if not hasattr(cls, "_spis_cache"):
+            with contextlib.redirect_stdout(io.StringIO()):
+                params = SimulationParams3D(
+                    Vf=25.0, spacecraft_voltage_V=25.0,
+                    domain_half_length_x_m=10.0, domain_half_length_y_m=10.0, domain_half_length_z_m=10.0,
+                    grid_nodes_x=40, grid_nodes_y=40, grid_nodes_z=40,
+                    vtk_files=VTKFilesConfig(
+                        spis_background_potential_file="inputs/spis_V_bg.vtk",
+                        spacecraft_weighting_file="inputs/spis_Vw_body.vtk",
+                        antenna_weighting_files=[
+                            "inputs/spis_Vw_ant1.vtk", "inputs/spis_Vw_ant2.vtk", "inputs/spis_Vw_ant3.vtk",
+                        ],
+                    ),
+                )
+                cls._spis_cache = (params, load_and_interpolate_vtk(params))
+        return cls._spis_cache
+
     def test_spis_weighting_potentials(self):
         """
-        Weighting potentials loaded from SPIS VTK files must satisfy the same conditions on the PIC grid.
+        Weighting potentials loaded from SPIS VTK files satisfy the Ramo-Shockley boundary conditions on
+        the PIC grid, although the SPIS solutions live on a sphere of radius 25 m and the thin antennas
+        are under-resolved.
 
-        KNOWN FAILURE: the SPIS solutions are defined on a sphere of radius 25 m and are only
-        interpolated onto the PIC box (|x| <= 5 m). On the PIC boundary Vw reaches ~0.1 instead of 0,
-        one antenna crosses the boundary, and trilinear sampling leaves Vw up to ~0.15 on the
-        spacecraft and other antennas. The induced current is therefore inconsistent with the grounded
-        self-field, and particles leaving the domain or hitting another conductor produce a spurious
-        jump q * Vw in the antenna charge.
+        Harmonicity is not required here: the loader keeps the Laplacian of the sampled SPIS field (a
+        piecewise-linear interpolant on a tetrahedral mesh), whose 7-point Laplacian reaches
+        h^2 |Lap Vw| / 6 ~ 0.04 next to the antennas.
         """
-        with contextlib.redirect_stdout(io.StringIO()):
-            params = SimulationParams3D(
-                grid_nodes_x=40, grid_nodes_y=40, grid_nodes_z=40,
-                vtk_files=VTKFilesConfig(
-                    spis_background_potential_file="",
-                    spacecraft_weighting_file="inputs/spis_Vw_body.vtk",
-                    antenna_weighting_files=[
-                        "inputs/spis_Vw_ant1.vtk", "inputs/spis_Vw_ant2.vtk", "inputs/spis_Vw_ant3.vtk",
-                    ],
-                ),
-            )
-            geom = load_and_interpolate_vtk(params)
-        report = _ramo_violations(
-            geom.Vw_grids, geom.antenna_masks_3d, geom.spacecraft_mask_3d, params.dx
-        )
-        self._assert_ramo_conditions(report, tol=0.01)
+        params, geom = self._spis_geometry()
+        self.assertEqual(geom.num_antennas, 3)
+        report = _ramo_violations(geom.Vw_grids, geom.antenna_masks_3d, geom.spacecraft_mask_3d, params.dx)
+        for a, r in enumerate(report):
+            with self.subTest(antenna=a):
+                self.assertAlmostEqual(r["own_mean"], 1.0, places=6)
+                self.assertEqual(r["antenna_nodes_on_boundary"], 0, "Antenna is truncated by the domain")
+                self.assertLess(r["boundary_max"], 1e-6, "Vw does not vanish on the grounded outer boundary")
+                self.assertLess(r["other_conductors_max"], 1e-6, "Vw does not vanish on the other conductors")
+
+    def test_spis_background_holds_conductor_potentials(self):
+        """
+        The SPIS background puts the spacecraft at the configured V_sc and each antenna at the potential
+        of its surface in the SPIS solution, with disjoint conductor masks.
+        """
+        params, geom = self._spis_geometry()
+        masks = [geom.spacecraft_mask_3d] + list(geom.antenna_masks_3d)
+        self.assertEqual(int(sum(m.sum() for m in masks)), int(np.logical_or.reduce(masks).sum()),
+                         "Conductor masks overlap")
+        np.testing.assert_allclose(geom.V_bg[geom.spacecraft_mask_3d], 25.0, rtol=1e-6)
+        # Antenna surface potentials of the SPIS solution (Vw = 1 nodes of the SPIS mesh)
+        for mask, v_spis, v_bias in zip(geom.antenna_masks_3d, (11.641, 11.430, 11.579), params.V_bias):
+            self.assertAlmostEqual(v_bias, v_spis, places=3)
+            np.testing.assert_allclose(geom.V_bg[mask], v_bias, rtol=1e-6)
 
     @unittest.expectedFailure
     def test_synthetic_background_without_input_files(self):
