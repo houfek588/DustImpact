@@ -8,6 +8,7 @@ and conductor boundary extraction via PyVista.
 import os
 from typing import Tuple, List, Optional, Any, Dict
 import numpy as np
+from scipy.spatial import cKDTree
 
 try:
     import pyvista as pv
@@ -79,6 +80,11 @@ def sample_mesh_to_grid(mesh: Any, pic_grid: Any, filename: str = "") -> np.ndar
     """
     Samples a PyVista mesh onto a Cartesian grid (ImageData) and extracts potential values.
 
+    Grid nodes that lie outside the source mesh (the unmeshed interior of conductors in SPIS volume
+    meshes) receive the value of the nearest mesh point, which lies on the enclosing conductor
+    surface, instead of the 0 returned by VTK. A spurious 0 inside a conductor
+    would otherwise enter every correction that uses the sampled values on conductor nodes.
+
     Parameters
     ----------
     mesh : pyvista.DataSet
@@ -91,11 +97,21 @@ def sample_mesh_to_grid(mesh: Any, pic_grid: Any, filename: str = "") -> np.ndar
     Returns
     -------
     np.ndarray
-        Array of shape matching pic_grid dimensions.
+        Array of shape pic_grid.dimensions indexed [i, j, k] = (x, y, z).
     """
     sampled = pic_grid.sample(mesh)
-    pot = extract_potential_from_mesh(sampled, filename)
-    return pot.reshape(pic_grid.dimensions)
+    dims = pic_grid.dimensions
+    # ImageData points are ordered with x varying fastest (Fortran order)
+    pot = np.asarray(extract_potential_from_mesh(sampled, filename), dtype=np.float64).reshape(dims, order='F')
+    if 'vtkValidPointMask' in sampled.point_data:
+        valid = np.asarray(sampled.point_data['vtkValidPointMask']).astype(bool).reshape(dims, order='F')
+        valid &= np.isfinite(pot)
+        if not valid.all():
+            src_values = np.asarray(extract_potential_from_mesh(mesh, filename), dtype=np.float64)
+            grid_points = np.asarray(pic_grid.points).reshape(dims + (3,), order='F')
+            _, nearest = cKDTree(np.asarray(mesh.points)).query(grid_points[~valid])
+            pot[~valid] = src_values[nearest]
+    return pot
 
 
 def extract_enclosed_conductor_mask(
@@ -127,13 +143,14 @@ def extract_enclosed_conductor_mask(
     np.ndarray (bool)
         3D boolean mask of conductor volume.
     """
+    # ImageData points are ordered with x varying fastest (Fortran order)
     dims = pic_grid.dimensions
     if mesh is not None:
         # 1. Direct enclosure check for surface meshes
         try:
             if not bool(mesh.point_data.keys()):
                 enclosed = pic_grid.select_enclosed_points(mesh, tolerance=1e-5)
-                mask = enclosed['SelectedPoints'].view(bool).reshape(dims)
+                mask = enclosed['SelectedPoints'].view(bool).reshape(dims, order='F')
                 if np.sum(mask) > 0:
                     return mask
         except Exception:
@@ -147,7 +164,7 @@ def extract_enclosed_conductor_mask(
             contour_val = threshold * raw_peak if abs(raw_peak) > 1e-6 else threshold
             contour_body = mesh.contour([contour_val], scalars=key_body)
             enclosed_body = pic_grid.select_enclosed_points(contour_body, tolerance=1e-5)
-            mask = enclosed_body['SelectedPoints'].view(bool).reshape(dims)
+            mask = enclosed_body['SelectedPoints'].view(bool).reshape(dims, order='F')
             if np.sum(mask) > 0:
                 return mask
         except Exception:

@@ -26,7 +26,7 @@
                     "resistance_Ohm": 100000.0
                 }
             ],
-            "weighting_threshold": 0.85
+            "weighting_threshold": 0.99
         }
     },
     "toggles": {

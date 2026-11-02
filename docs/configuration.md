@@ -66,21 +66,21 @@ Používá se pro načtení výsledků simulace ze softwaru SPIS ve formátu VTK
 | Parametr | Typ | Výchozí | Jednotka | Popis |
 |---|---|---|---|---|
 | `background_potential_file` | `string` | `"inputs/spis_V_bg.vtk"` | - | Cesta k VTK souboru s rovnovážným elektrostatickým potenciálem pozadí $V_{\text{bg}}$. Pokud je řetězec prázdný `""`, elektrostatické pozadí se automaticky vygeneruje superpozicí váhových polí trupu a antén. |
-| `weighting_threshold` | `float` | `0.85` | - | Globální práh pro detekci/voxelizaci kovu tělesa sondy a antén z váhových polí $V_w$ ($V_w \ge \text{threshold}$). U tenkých antén kód obsahuje adaptivní fallback, pokud by mřížka byla příliš hrubá. |
+| `weighting_threshold` | `float` | `0.85` | - | Globální práh pro detekci/voxelizaci kovu tělesa sondy a antén z váhových polí $V_w$ ($V_w \ge \text{threshold}$). U tenkých antén kód obsahuje adaptivní fallback, pokud by mřížka byla příliš hrubá. Uzly masky se chovají jako kov a mají potenciál vodiče; při nízkém prahu maska zasahuje do pláště a pozadí se tam od SPIS odchyluje (s prahem ~0.99 odpovídá pozadí SPIS, pokud mřížka antény rozliší). |
 
 #### Objekt `"spacecraft"` (Těleso sondy):
 | Parametr | Typ | Výchozí | Jednotka | Popis |
 |---|---|---|---|---|
 | `weighting_file` | `string` | `"inputs/spis_Vw_body.vtk"` | - | Cesta k VTK souboru s Ramo-Shockleyho váhovým potenciálem tělesa sondy ($V_w = 1.0$ na povrchu sondy). |
 | `surface_mesh_file` | `string` | `""` | - | Volitelná cesta k explicitní povrchové síti sondy (např. z Gmsh, STL nebo VTK). Pokud je prázdné, těleso se voxelizuje přímo z váhového pole. |
-| `voltage_V` | `float` | `null` | $\text{V}$ | Rovnovážný plovoucí potenciál tělesa sondy $V_{\text{sc}}$. Pokud je `null`, načte se z výpočtu rovnovážného náboje nebo ze SPIS pozadí. |
+| `voltage_V` | `float` | `null` | $\text{V}$ | Potenciál tělesa sondy $V_{\text{sc}}$. Je-li zadán `background_potential_file`, hodnota se ignoruje a potenciál se převezme z povrchu tělesa v pozadí SPIS. Bez pozadí a při `null` se použije 0D rovnovážný potenciál. |
 
 #### Prvky pole `"antennas"`:
 Každý prvek reprezentuje jednu měřicí anténu:
 | Parametr | Typ | Výchozí | Jednotka | Popis |
 |---|---|---|---|---|
 | `weighting_file` | `string` | - | - | Cesta k VTK souboru s váhovým potenciálem dané antény ($V_w = 1.0$ na anténě, $0.0$ na ostatních vodičích). |
-| `voltage_V` | `float` | `0.0` | $\text{V}$ | Počáteční předpětí (bias) antény vůči plazmatu / plovoucímu potenciálu. |
+| `voltage_V` | `float` | `0.0` | $\text{V}$ | Předpětí (bias) antény. Je-li zadán `background_potential_file`, hodnota se ignoruje a potenciál se převezme z povrchu antény v pozadí SPIS. |
 | `capacitance_F` | `float` | `2e-12` | $\text{F}$ | Vstupní kapacita $C_{\text{ant}}$ anténního předzesilovače a vedení (typicky $1\text{–}10\text{ pF}$). |
 | `resistance_Ohm` | `float` | `100000.0` | $\Omega$ | Vstupní svodový odpor $R_{\text{ant}}$ anténního obvodu (typicky $100\text{ k}\Omega\text{ až }10\text{ M}\Omega$). |
 

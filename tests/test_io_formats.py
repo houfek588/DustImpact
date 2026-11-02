@@ -20,7 +20,7 @@ from dust_impact.common.io import (
     save_results, load_results,
     save_checkpoint, HAS_H5PY
 )
-from dust_impact.common.vtk_export import export_simulation_to_paraview, HAS_PYVISTA
+from dust_impact.visualization.vtk import export_simulation_to_paraview, HAS_PYVISTA
 from dust_impact.main import main
 
 

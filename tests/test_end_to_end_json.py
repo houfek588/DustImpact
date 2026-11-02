@@ -169,9 +169,9 @@ class TestEndToEndSpis(_EndToEndRunMixin, unittest.TestCase):
     """
     config.json: production SPIS geometry (VTK background and weighting potentials).
 
-    The configured spacecraft potential (25 V) differs from the SPIS solution (8.9 V) and the thin
-    antennas are under-resolved on the PIC grid, so this run exercises the background shift and the
-    harmonic correction that puts every conductor at its potential.
+    The configured spacecraft potential (25 V) is overridden by the SPIS background (8.9 V), and the
+    thin antennas are under-resolved on the PIC grid, so this run exercises the harmonic correction
+    that puts every conductor at its SPIS potential.
     """
     SOURCE = "config.json"
 

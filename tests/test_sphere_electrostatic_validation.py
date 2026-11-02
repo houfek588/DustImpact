@@ -71,16 +71,12 @@ class TestSphereElectrostaticValidation(unittest.TestCase):
         ratio = self._source_ratio()
         self.assertLess(np.std(ratio) / np.mean(ratio), 0.01)
 
-    @unittest.expectedFailure
     def test_loader_normalises_to_surface_potential(self):
         """
         Variant B: V_bg = V_sc * Vw_body with Vw_body = 1 on the conductor surface, so the imported
-        potential must equal V_sc times the source normalised by its surface value.
-
-        KNOWN FAILURE: the loader normalises by the largest value sampled on the PIC grid instead of the
-        surface value. The interior of the sphere is not meshed in the SPIS file, so the peak is taken at
-        the node closest to the surface and depends on the grid: for N = 35 it is 23.20 V instead of
-        23.67 V and the whole field is scaled up by 2 %.
+        potential must equal V_sc times the source normalised by its surface value. The interior of
+        the sphere is not meshed in the SPIS file; its grid nodes take the surface value, so the
+        normalisation does not depend on the grid.
         """
         np.testing.assert_allclose(self._source_ratio(), 1.0, rtol=2e-3)
 

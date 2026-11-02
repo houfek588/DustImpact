@@ -373,8 +373,8 @@ class TestPreparedGeometryAndIntegration(unittest.TestCase):
         self.assertEqual(params.geometry.spis.antennas[0].weighting_file, os.path.abspath("inputs/spis_Vw_ant1.vtk"))
         self.assertEqual(params.antenna_capacitance_F, [2e-12, 2e-12, 2e-12])
         self.assertEqual(params.antenna_resistance_Ohm, [100000.0, 100000.0, 100000.0])
-        self.assertEqual(params.geometry.spis.weighting_threshold, 0.85)
-        self.assertEqual(params.weighting_threshold, 0.85)
+        self.assertEqual(params.geometry.spis.weighting_threshold, 0.99)
+        self.assertEqual(params.weighting_threshold, 0.99)
 
     def test_analytical_antenna_voltage_specification(self):
         from dust_impact.solver.config_loader import (

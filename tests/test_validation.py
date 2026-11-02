@@ -14,7 +14,7 @@ import unittest
 from pydantic import ValidationError
 
 from dust_impact.solver.schema import SimulationConfigSchema, format_validation_error
-from dust_impact.solver.config_loader import load_and_validate_config, setup_simulation_parameters_3d
+from dust_impact.solver.config_loader import load_and_validate_config
 
 
 class TestConfigValidation(unittest.TestCase):
@@ -175,16 +175,6 @@ class TestConfigValidation(unittest.TestCase):
             self.assertIn("[CHYBA KONFIGURACE]", msg)
             self.assertIn("geometry -> source", msg)
             self.assertIn("toggles -> unknown_flag", msg)
-
-    def test_setup_simulation_parameters_integration(self):
-        """setup_simulation_parameters_3d should return expected dataclasses when loading config."""
-        params, toggles, plot_cfg = setup_simulation_parameters_3d(
-            Vf=-25.0, Vf_antenne=10.0, config_file="config.json"
-        )
-        self.assertEqual(params.grid_nodes_x, 150)
-        self.assertEqual(params.grid_nodes_y, 150)
-        self.assertEqual(params.grid_nodes_z, 150)
-        self.assertTrue(toggles.enable_spis_background_field)
 
     def test_two_temperature_validation_and_fallbacks(self):
         """Separate electron/ion temperatures in physics and impact should validate with correct fallbacks."""

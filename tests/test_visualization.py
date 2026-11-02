@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Unit tests for dust_impact.visualization package and its backward compatibility facades.
+Unit tests for the dust_impact.visualization package.
 """
 
 import os
@@ -15,7 +15,6 @@ from dust_impact.solver.config_loader import SimulationParams3D, PlottingConfig3
 from dust_impact.common.io import export_time_series_csv
 from dust_impact.visualization import (
     VisualizationPipeline,
-    plot_simulation_results_3d,
     plot_currents_and_voltage,
     plot_static_vtk_fields,
     animate_fields_slice,
@@ -23,7 +22,6 @@ from dust_impact.visualization import (
     animate_particles_2d_slice,
     animate_particles_3d,
     animate_velocity_distribution,
-    export_simulation_to_paraview,
 )
 from dust_impact.visualization.styles import safe_set_window_title, get_antenna_colors, get_species_colors, cleanup_animation
 
@@ -153,21 +151,6 @@ class TestVisualization(unittest.TestCase):
         pipeline.run(self.results, self.params, self.plot_cfg)
         self.assertEqual(len(pipeline.figures), 6)
         self.assertEqual(len(pipeline.animations), 4)
-
-    def test_backward_compatibility_facades(self):
-        # 1. solver.plotting facade
-        import dust_impact.solver.plotting as legacy_plot
-        self.assertTrue(callable(legacy_plot.plot_simulation_results_3d))
-        self.assertTrue(callable(legacy_plot._plot_currents_and_voltage))
-        self.assertTrue(callable(legacy_plot._plot_static_vtk_fields))
-        self.assertTrue(callable(legacy_plot._animate_yz_fields_slice))
-        self.assertTrue(callable(legacy_plot.plot_potential_line_x))
-        self.assertTrue(callable(legacy_plot._plot_potential_line_x))
-        self.assertTrue(callable(legacy_plot._export_csv))
-
-        # 2. common.vtk_export facade
-        import dust_impact.common.vtk_export as legacy_vtk
-        self.assertTrue(callable(legacy_vtk.export_simulation_to_paraview))
 
 
 if __name__ == "__main__":

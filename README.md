@@ -177,9 +177,7 @@ dust_impact/
 │   ├── pushers.py    # 3D Boris / Leap-Frog částicový integrátor a CFL stabilita
 │   └── interpolators.py # Trilineární 3D interaktivní interpolátory (Cloud-in-Cell)
 ├── common/           # Společná infrastruktura
-│   ├── io.py         # Ukládání a načítání HDF5 (.h5), NPZ s JSON metadaty a rotující checkpointy
-│   ├── vtk_export.py # Export časových řad polí a částic pro ParaView (.vti, .vtp, .pvd)
-│   └── circuits.py   # Integrování RC odezvy anténního předzesilovače
+│   └── io.py         # Ukládání a načítání HDF5 (.h5), NPZ s JSON metadaty a rotující checkpointy
 └── solver/           # Řídicí vrstva 3D PIC simulace
     ├── ensemble.py   # Správa částicového ansámblu (ParticleEnsemble), injekce a CCD kolize
     ├── field_solver.py # Řešič Poissonovy rovnice a elektrostatických polí (FieldSolver3D)
@@ -212,12 +210,12 @@ Projekt disponuje ucelenou testovací sadou **53 unit testů** pokrývajících:
    * 3D Poissonův řešič pro Gaussovský nábojový oblak ($V(r) \sim \frac{\text{erf}(r/\sigma)}{r}$).
    * Metoda vytvořených řešení (MMS) a ověření 2. řádu konvergence $\mathcal{O}(dx^2)$ diferenčního operátoru.
    * 3D plazmatické Langmuirovy oscilace (FFT spektrum kmitů částic vs. $\omega_{pe}$).
-4. **Fyzikální zákony a obvody (`test_physics_level1.py`, `test_physics_level2.py`):**
-   * Globální zachování náboje v 3D PIC, Debyeovo stínění, analytická odezva RC obvodu antény, ambipolární expanze.
+4. **Fyzikální zákony a obvody (`test_charging.py`, `test_charge_balance.py`, `test_physics_level2.py`):**
+   * 0D rovnovážný potenciál (OML), bilance náboje antén (Ramo-Shockley), ambipolární expanze.
 5. **I/O formáty a ParaView export (`test_io_formats.py`):**
    * HDF5, NPZ s JSON metadaty, rotující checkpointy a generování `.vti`/`.vtp`/`.pvd`.
 
-Spuštění všech 53 testů:
+Spuštění všech testů:
 ```bash
 python -m unittest discover -s tests
 ```

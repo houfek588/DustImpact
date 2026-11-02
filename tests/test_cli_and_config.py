@@ -61,7 +61,7 @@ class TestCLIAndConfig(unittest.TestCase):
 
             from dust_impact.geometry import build_simulation_geometry
             from dust_impact.solver.sim_core import DustImpactSimulation3D
-            from dust_impact.solver.plotting import plot_simulation_results_3d
+            from dust_impact.visualization import plot_simulation_results_3d
 
             geom = build_simulation_geometry(params)
             self.assertEqual(geom.num_antennas, 0)

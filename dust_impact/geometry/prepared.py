@@ -23,6 +23,7 @@ from dust_impact.numerics.poisson import DirichletLaplaceSolver3D
 from dust_impact.geometry.spis_loader import (
     read_spis_mesh,
     extract_potential_from_mesh,
+    sample_mesh_to_grid,
     extract_enclosed_conductor_mask,
     extract_antenna_bias_from_spis
 )
@@ -146,6 +147,8 @@ def build_simulation_geometry(params: Any) -> PreparedGeometry3D:
         )
 
     print("Mapování SPIS VTK na 3D pravoúhlou mřížku...")
+    # VTK ImageData orders its points with x varying fastest, so every sampled point array is
+    # reshaped to (Nx, Ny, Nz) in Fortran order to match the [i, j, k] = (x, y, z) indexing of the solver.
     pic_grid = pv.ImageData(
         dimensions=(params.Nx, params.Ny, params.Nz),
         spacing=(params.dx, params.dy, params.dz),
@@ -187,9 +190,7 @@ def build_simulation_geometry(params: Any) -> PreparedGeometry3D:
             sc_mesh = read_spis_mesh(sc_file)
             if mesh_body is None:
                 mesh_body = sc_mesh
-            sampled_body = pic_grid.sample(sc_mesh)
-            pot_body = extract_potential_from_mesh(sampled_body, sc_file)
-            Vw_body = pot_body.reshape((Nx, Ny, Nz))
+            Vw_body = sample_mesh_to_grid(sc_mesh, pic_grid, sc_file)
 
             # Normalize weighting field to 1.0 at conductor surface if unnormalized
             vw_max_abs = np.nanmax(np.abs(Vw_body))
@@ -223,9 +224,7 @@ def build_simulation_geometry(params: Any) -> PreparedGeometry3D:
         mesh_ant = None
         try:
             mesh_ant = read_spis_mesh(vtk_file)
-            sampled_ant = pic_grid.sample(mesh_ant)
-            pot_ant = extract_potential_from_mesh(sampled_ant, vtk_file)
-            Vw = pot_ant.reshape((Nx, Ny, Nz))
+            Vw = sample_mesh_to_grid(mesh_ant, pic_grid, vtk_file)
 
             # Normalize weighting field to 1.0 on conductor surface
             vw_ant_max = np.nanmax(np.abs(Vw))
@@ -271,13 +270,25 @@ def build_simulation_geometry(params: Any) -> PreparedGeometry3D:
     if bg_file and (os.path.exists(bg_file) or os.path.exists(os.path.join("inputs", bg_file))):
         try:
             mesh_bg = read_spis_mesh(bg_file)
-            sampled_bg = pic_grid.sample(mesh_bg)
-            V_bg_grid = np.nan_to_num(extract_potential_from_mesh(sampled_bg, bg_file).reshape((Nx, Ny, Nz)))
+            V_bg_grid = sample_mesh_to_grid(mesh_bg, pic_grid, bg_file)
             print(f"  -> Pozadí načteno z {bg_file}. Rozsah potenciálu: {np.min(V_bg_grid):.2f} až {np.max(V_bg_grid):.2f} V")
         except Exception as e:
             print(f"[UPOZORNĚNÍ] Nelze načíst pozadí z '{bg_file}' ({e}). Nastavuji počáteční pozadí na 0.0 V.")
             mesh_bg = None
             V_bg_grid = np.zeros((Nx, Ny, Nz))
+
+    # With a SPIS background the conductor potentials belong to that solution: the spacecraft and the
+    # antennas take the potential of their surfaces in the background file, and any configured value
+    # is ignored (it would be inconsistent with the plasma potential computed by SPIS).
+    if mesh_bg is not None and sc_file:
+        V_sc_spis = extract_antenna_bias_from_spis(mesh_bg, sc_file, default_bias=None)
+        if V_sc_spis is not None:
+            if abs(V_sc - V_sc_spis) > 1e-6:
+                print(f"[UPOZORNĚNÍ] Potenciál sondy {V_sc:.3f} V z konfigurace ignoruji, "
+                      f"pozadí SPIS určuje {V_sc_spis:.3f} V.")
+            print(f"  -> Potenciál sondy načten přímo ze SPIS VTK: {V_sc_spis:.3f} V")
+            V_sc = V_sc_spis
+            params.spacecraft_voltage_V = V_sc_spis
 
     configured_biases = getattr(params, 'antenna_bias_voltage_V', getattr(params, 'V_bias', []))
     antenna_biases = []
@@ -328,14 +339,10 @@ def build_simulation_geometry(params: Any) -> PreparedGeometry3D:
         conductor_potentials[mask] = v_ant
 
     if mesh_bg is not None:
-        # SPIS solved the plasma for its own spacecraft potential; a different configured V_sc is
-        # superposed through the vacuum response (V_sc - V_sc,SPIS) * Vw_body
-        V_sc_spis = extract_antenna_bias_from_spis(mesh_bg, sc_file, default_bias=None) if sc_file else None
-        if V_sc_spis is not None and abs(V_sc - V_sc_spis) > 1e-6:
-            print(f"[UPOZORNĚNÍ] Potenciál sondy {V_sc:.3f} V se liší od řešení SPIS ({V_sc_spis:.3f} V); "
-                  f"pozadí posouvám o ({V_sc - V_sc_spis:+.3f} V) * Vw_body.")
-            V_bg_grid = V_bg_grid + (V_sc - V_sc_spis) * Vw_body
-        # The outer boundary keeps the sampled SPIS values, the conductors take their potentials
+        # The SPIS potential is kept everywhere. Only the conductor nodes of the PIC grid, where the
+        # under-resolved conductors sample the surrounding plasma potential, are set to the SPIS
+        # conductor potentials; the harmonic correction keeps the sampled space charge and the sampled
+        # values on the outer boundary.
         V_bg_grid = laplace.enforce(V_bg_grid, np.where(conductor_nodes, conductor_potentials, V_bg_grid))
     else:
         # Superposition of the conductor potentials; exact on conductors and zero on the outer boundary

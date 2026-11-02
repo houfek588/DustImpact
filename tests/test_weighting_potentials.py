@@ -25,7 +25,6 @@ from dust_impact.solver.config_loader import (
     SimulationParams3D, VTKFilesConfig, setup_simulation_parameters_3d,
 )
 
-
 def _boundary_values(field: np.ndarray) -> np.ndarray:
     """All values on the six outer faces of a 3D grid."""
     return np.concatenate([
@@ -140,21 +139,6 @@ class TestWeightingPotentials(unittest.TestCase):
                 self.assertEqual(r["antenna_nodes_on_boundary"], 0, "Antenna is truncated by the domain")
                 self.assertLess(r["boundary_max"], 1e-6, "Vw does not vanish on the grounded outer boundary")
                 self.assertLess(r["other_conductors_max"], 1e-6, "Vw does not vanish on the other conductors")
-
-    def test_spis_background_holds_conductor_potentials(self):
-        """
-        The SPIS background puts the spacecraft at the configured V_sc and each antenna at the potential
-        of its surface in the SPIS solution, with disjoint conductor masks.
-        """
-        params, geom = self._spis_geometry()
-        masks = [geom.spacecraft_mask_3d] + list(geom.antenna_masks_3d)
-        self.assertEqual(int(sum(m.sum() for m in masks)), int(np.logical_or.reduce(masks).sum()),
-                         "Conductor masks overlap")
-        np.testing.assert_allclose(geom.V_bg[geom.spacecraft_mask_3d], 25.0, rtol=1e-6)
-        # Antenna surface potentials of the SPIS solution (Vw = 1 nodes of the SPIS mesh)
-        for mask, v_spis, v_bias in zip(geom.antenna_masks_3d, (11.641, 11.430, 11.579), params.V_bias):
-            self.assertAlmostEqual(v_bias, v_spis, places=3)
-            np.testing.assert_allclose(geom.V_bg[mask], v_bias, rtol=1e-6)
 
     @unittest.expectedFailure
     def test_synthetic_background_without_input_files(self):

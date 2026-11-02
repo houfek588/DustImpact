@@ -134,7 +134,6 @@ def plot_simulation_results_3d(
 ) -> None:
     """
     Main visualization entry point: renders and saves all requested figures and animations.
-    Compatible drop-in replacement for legacy dust_impact.solver.plotting.plot_simulation_results_3d.
     """
     pipeline = VisualizationPipeline()
     pipeline.run(

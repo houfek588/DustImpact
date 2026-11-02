@@ -672,7 +672,7 @@
                         }
                     ],
                     "default": null,
-                    "description": "Antenna bias potential [V]",
+                    "description": "Antenna bias potential [V]; ignored when background_potential_file is given (taken from the SPIS background)",
                     "title": "Voltage V"
                 },
                 "capacitance_F": {
@@ -814,7 +814,7 @@
                         }
                     ],
                     "default": null,
-                    "description": "Equilibrium floating potential of spacecraft body [V]",
+                    "description": "Potential of spacecraft body [V]; ignored when background_potential_file is given (taken from the SPIS background)",
                     "title": "Voltage V"
                 }
             },

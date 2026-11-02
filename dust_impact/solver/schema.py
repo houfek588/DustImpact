@@ -56,7 +56,7 @@ class SpisSpacecraftSchema(StrictBaseModel):
     )
     voltage_V: Optional[float] = Field(
         None,
-        description="Equilibrium floating potential of spacecraft body [V]"
+        description="Potential of spacecraft body [V]; ignored when background_potential_file is given (taken from the SPIS background)"
     )
 
 
@@ -67,7 +67,7 @@ class SpisAntennaSchema(StrictBaseModel):
     )
     voltage_V: Optional[float] = Field(
         None,
-        description="Antenna bias potential [V]"
+        description="Antenna bias potential [V]; ignored when background_potential_file is given (taken from the SPIS background)"
     )
     capacitance_F: Optional[Annotated[float, Field(gt=0.0)]] = Field(
         None,

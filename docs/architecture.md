@@ -50,7 +50,6 @@ graph TD
 | **[`schema.py`](file:///C:/Projects/Phd/SPIS/PostProcessSPIS/dust_impact/solver/schema.py)** | Deklarativní validační modely Pydantic v2 (`SimulationConfigSchema`, `GeometrySchema`, `PhysicsSchema`, `NumericSchema`, `PlottingSchema`). Zajišťuje striktní typování (`extra='forbid'`) a generuje `config.schema.json`. |
 | **[`params.py`](file:///C:/Projects/Phd/SPIS/PostProcessSPIS/dust_impact/solver/params.py)** | Dataclasses s dynamickými `@property` gettery a settery (`SimulationParams3D`). Slouží jako jediný zdroj pravdy (SSOT) pro rozměry domény a mřížkové kroky $dx, dy, dz$. |
 | **[`config_loader.py`](file:///C:/Projects/Phd/SPIS/PostProcessSPIS/dust_impact/solver/config_loader.py)** | Načítání JSON konfigurace, mapování zvalidovaného schématu na runtime objekty, normalizace cest a adaptivní přesměrování výstupních adresářů. |
-| **[`plotting.py`](file:///C:/Projects/Phd/SPIS/PostProcessSPIS/dust_impact/solver/plotting.py)** | Zpětně kompatibilní proxy fasáda delegující do nového balíčku `dust_impact.visualization`. |
 
 ### Přehled balíčku `dust_impact.visualization`:
 
@@ -177,6 +176,6 @@ OK
 
 - **Unit testy infrastruktury**: Pydantic v2 validace (`test_validation.py`), I/O formáty (`test_io_formats.py`), CLI a cesty (`test_cli_and_config.py`).
 - **Numerické a geometrické testy**: CIC depozice a zachování náboje (`test_numerics.py`), voxelizace a ray-tracing (`test_geometry.py`), sub-grid detektor tenkého drátu a paměť `float32` (`test_memory_and_wire_model.py`).
-- **Fyzikální verifikace Úrovně 1 (Level 1)**: Globální zachování náboje, Debyeovo stínění, odezva RC obvodu, analytické řešení Ramo-Shockley (`test_physics_level1.py`).
+- **Fyzikální verifikace Úrovně 1 (Level 1)**: 0D nabíjení (`test_charging.py`), bilance náboje antén Ramo-Shockley (`test_charge_balance.py`), integrátor RC obvodu (`test_numerics.py`), fyzikální konzistence (`test_physics_consistency.py`).
 - **Fyzikální verifikace Úrovně 2 (Level 2)**: 3D ambipolární expanze plazmatu, MMS (Method of Manufactured Solutions) konvergence Poissonova řešiče, Langmuirovy plazmové oscilace (`test_physics_level2.py`, `test_physics_analytical_3d.py`).
 - **Integrační testy řešiče**: Ověření streaming I/O, zastropování paměti `len(history) == 1` a běh kanonického balíčku (`test_solver_package_and_streaming.py`, `test_sim3d.py`).

@@ -34,9 +34,3 @@ __all__ = [
     "load_and_interpolate_vtk",
     "run_3d_simulation",
 ]
-
-try:
-    from dust_impact.solver.plotting import plot_simulation_results_3d
-    __all__.append("plot_simulation_results_3d")
-except Exception:
-    pass
