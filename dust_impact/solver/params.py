@@ -68,6 +68,8 @@ class ImpactConfig:
     electron_temperature_eV: float = 2.0
     ion_temperature_eV: Optional[float] = None
     temperature_eV: Optional[float] = None
+    ion_drift_speed_m_s: float = 0.0
+    ion_cone_half_angle_deg: float = 90.0
 
     def __post_init__(self):
         if self.temperature_eV is not None:
@@ -132,7 +134,9 @@ class PhysicsConfig:
                 normal=list(norm) if norm is not None else None,
                 electron_temperature_eV=e_temp,
                 ion_temperature_eV=i_temp,
-                temperature_eV=temp_alias
+                temperature_eV=temp_alias,
+                ion_drift_speed_m_s=float(self.impact.get('ion_drift_speed_m_s', 0.0)),
+                ion_cone_half_angle_deg=float(self.impact.get('ion_cone_half_angle_deg', 90.0)),
             )
 
         if self.impact_cloud_temperature_eV is not None:

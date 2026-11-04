@@ -324,6 +324,21 @@
                     "default": null,
                     "description": "Shorthand kinetic temperature for both electrons and ions in the impact cloud [eV]",
                     "title": "Temperature Ev"
+                },
+                "ion_drift_speed_m_s": {
+                    "default": 0.0,
+                    "description": "Ion expansion (drift) speed of the impact cloud [m/s]; ions then form a conical beam around the surface normal with ion_temperature_eV as thermal spread in the beam frame. 0 keeps the thermal half-Maxwellian ions",
+                    "minimum": 0.0,
+                    "title": "Ion Drift Speed M S",
+                    "type": "number"
+                },
+                "ion_cone_half_angle_deg": {
+                    "default": 90.0,
+                    "description": "Half-opening angle of the ion beam around the surface normal [deg]; drift directions are uniform in solid angle inside the cone (used only with ion_drift_speed_m_s > 0)",
+                    "maximum": 90.0,
+                    "minimum": 0.0,
+                    "title": "Ion Cone Half Angle Deg",
+                    "type": "number"
                 }
             },
             "title": "ImpactSchema",

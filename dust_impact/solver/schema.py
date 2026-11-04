@@ -329,6 +329,17 @@ class ImpactSchema(StrictBaseModel):
         None,
         description="Shorthand kinetic temperature for both electrons and ions in the impact cloud [eV]"
     )
+    ion_drift_speed_m_s: Annotated[float, Field(ge=0.0)] = Field(
+        0.0,
+        description="Ion expansion (drift) speed of the impact cloud [m/s]; ions then form a conical beam around "
+                    "the surface normal with ion_temperature_eV as thermal spread in the beam frame. "
+                    "0 keeps the thermal half-Maxwellian ions"
+    )
+    ion_cone_half_angle_deg: Annotated[float, Field(ge=0.0, le=90.0)] = Field(
+        90.0,
+        description="Half-opening angle of the ion beam around the surface normal [deg]; drift directions are "
+                    "uniform in solid angle inside the cone (used only with ion_drift_speed_m_s > 0)"
+    )
 
     @model_validator(mode="before")
     @classmethod

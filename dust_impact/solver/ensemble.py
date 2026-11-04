@@ -10,7 +10,9 @@ import numpy as np
 
 from dust_impact.physics.constants import e, m_e
 from dust_impact.physics.ramo_shockley import calc_induced_current_from_potential
-from dust_impact.physics.emissions import sample_maxwellian_velocities, sample_half_maxwellian_velocities
+from dust_impact.physics.emissions import (
+    sample_maxwellian_velocities, sample_half_maxwellian_velocities, sample_cone_beam_velocities
+)
 from dust_impact.numerics.pushers import leapfrog_step_3d
 from dust_impact.solver.config_loader import SimulationParams3D
 from dust_impact.geometry.surface import check_wire_collision_3d
@@ -69,8 +71,17 @@ class ParticleEnsemble:
             else:
                 n = np.array([-0.7071, 0.7071, 0.0])
 
-            # Half-Maxwellians of the impact cloud temperatures expanding away from the surface
-            v_i = sample_half_maxwellian_velocities(self.p.N_particles, T_i_eV, self.p.m_i, n)
+            # Electrons: half-Maxwellian of the impact cloud temperature expanding away from the surface.
+            # Ions: drifting conical beam around the normal if a drift speed is given, else half-Maxwellian.
+            impact_cfg = getattr(self.p, 'impact', None)
+            v_drift = float(getattr(impact_cfg, 'ion_drift_speed_m_s', 0.0) or 0.0)
+            if v_drift > 0.0:
+                v_i = sample_cone_beam_velocities(
+                    self.p.N_particles, v_drift, float(getattr(impact_cfg, 'ion_cone_half_angle_deg', 90.0)),
+                    T_i_eV, self.p.m_i, n
+                )
+            else:
+                v_i = sample_half_maxwellian_velocities(self.p.N_particles, T_i_eV, self.p.m_i, n)
             v_e = sample_half_maxwellian_velocities(self.p.N_particles, T_e_eV, m_e, n)
             self.vx_i, self.vy_i, self.vz_i = v_i[:, 0], v_i[:, 1], v_i[:, 2]
             self.vx_e, self.vy_e, self.vz_e = v_e[:, 0], v_e[:, 1], v_e[:, 2]

@@ -210,6 +210,8 @@ Sjednocuje geometrické, časové a termální parametry impaktního plazmatick�
 | `electron_temperature_eV` | `float` | `2.0` | $\text{eV}$ | Počáteční kinetická teplota elektronů v expandujícím impaktním oblaku (typicky $1\text{–}5\text{ eV} \approx 10\,000\text{–}50\,000\text{ K}$). Určuje $v_{\text{th},e}$ oblaku. |
 | `ion_temperature_eV` | `float` | `None` ($= T_e$) | $\text{eV}$ | Počáteční kinetická teplota iontů v expandujícím impaktním oblaku. Určuje $v_{\text{th},i}$ oblaku. Pokud není zadáno, přebírá hodnotu `electron_temperature_eV`. |
 | `temperature_eV` | `float` | `None` | $\text{eV}$ | Volitelný alias pro nastavení obou teplot `electron_temperature_eV` i `ion_temperature_eV` jedním číslem. |
+| `ion_drift_speed_m_s` | `float` | `0.0` | $\text{m/s}$ | Rychlost expanze (driftu) iontů $v_i$. Při $v_i > 0$ tvoří ionty kuželový svazek kolem normály povrchu (model Shen et al. 2021, 2023; typicky $v_i \approx 10\text{ km/s}$ pro dopady $\ge 20\text{ km/s}$) a `ion_temperature_eV` je tepelný rozptyl v soustavě svazku. Při $0$ jsou ionty tepelný poloviční Maxwell. |
+| `ion_cone_half_angle_deg` | `float` | `90.0` | $^\circ$ | Poloviční vrcholový úhel kužele iontového svazku kolem normály ($0$ = úzký svazek, $90$ = polokoule). Směry jsou rovnoměrné v prostorovém úhlu uvnitř kužele, střední rychlost podél normály je $v_i (1 + \cos\theta_{\max}) / 2$. Použije se jen při `ion_drift_speed_m_s > 0`. |
 
 ---
 

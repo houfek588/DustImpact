@@ -129,6 +129,49 @@ class TestPhysicsConsistency(unittest.TestCase):
                 sigma = np.sqrt(e * T / m)
                 self.assertAlmostEqual(np.mean(v_n) / (sigma * np.sqrt(2.0 / np.pi)), 1.0, delta=0.01)
 
+    def test_impact_cloud_ion_cone_beam(self):
+        """
+        With ion_drift_speed_m_s > 0 the impact ions form a conical beam around the surface normal:
+          - cold beam: |v| = v_d, every direction inside the cone, directions uniform in solid angle
+            (cos(theta) uniform on [cos(theta_max), 1], hence <cos(theta)> = (1 + cos(theta_max)) / 2);
+          - warm beam: the thermal spread adds 3 k_B T / m to <|v|^2> = v_d^2 + 3 k_B T / m (the
+            specular reflection at the surface keeps |v|), and all velocities still leave the surface.
+        Electrons stay a half-Maxwellian.
+        """
+        normal = np.array([0.3, -1.0, 0.2])
+        n = normal / np.linalg.norm(normal)
+        v_d, theta_max = 1.0e4, 30.0
+        cos_max = np.cos(np.deg2rad(theta_max))
+
+        def ions(Ti_eV: float, seed: int):
+            np.random.seed(seed)
+            params = _cubic_params(
+                8, 1.0,
+                num_macroparticles=200000,
+                plasma_injection_mode="point_cloud",
+                impact=ImpactConfig(electron_temperature_eV=2.0, ion_temperature_eV=Ti_eV,
+                                    ion_drift_speed_m_s=v_d, ion_cone_half_angle_deg=theta_max),
+                impact_normal=list(normal),
+            )
+            ens = ParticleEnsemble(params, np.zeros((8, 8, 8), dtype=bool), num_antennas=0)
+            return params, ens, np.column_stack([ens.vx_i, ens.vy_i, ens.vz_i])
+
+        _, ens, v = ions(1e-8, 11)
+        speed = np.linalg.norm(v, axis=1)
+        cos_t = (v @ n) / speed
+        np.testing.assert_allclose(speed, v_d, rtol=1e-3)
+        self.assertGreaterEqual(cos_t.min(), cos_max - 1e-3)
+        self.assertAlmostEqual(np.mean(cos_t) / (0.5 * (1.0 + cos_max)), 1.0, delta=1e-3)
+        self.assertAlmostEqual(np.mean(cos_t < 0.5 * (1.0 + cos_max)), 0.5, delta=0.01)
+        v_e_n = np.column_stack([ens.vx_e, ens.vy_e, ens.vz_e]) @ n
+        self.assertAlmostEqual(np.mean(v_e_n) / (np.sqrt(e * 2.0 / m_e) * np.sqrt(2.0 / np.pi)), 1.0, delta=0.01)
+
+        Ti_eV = 5.0
+        params, _, v = ions(Ti_eV, 13)
+        self.assertGreaterEqual((v @ n).min(), 0.0)
+        expected = v_d**2 + 3.0 * e * Ti_eV / params.m_i
+        self.assertAlmostEqual(np.mean(np.sum(v**2, axis=1)) / expected, 1.0, delta=0.01)
+
     def test_energy_conservation_in_static_potential(self):
         """
         An ion released at rest in the static potential of a charged sphere, V = V0 R / r, must

@@ -97,6 +97,69 @@ def sample_half_maxwellian_velocities(
     return v
 
 
+def sample_cone_beam_velocities(
+    N_particles: int, drift_speed: float, half_angle_deg: float, T_eV: float, mass_kg: float, normal: np.ndarray
+) -> np.ndarray:
+    """
+    Samples a drifting conical beam leaving a surface, the ion part of an impact plasma cloud.
+
+    Following the electrostatic impact-plasma model (Shen et al. 2021, 2023), impact ions expand from
+    the impact site as a beam of speed v_d inside a cone around the outward surface normal n. Each
+    particle gets a drift direction drawn uniformly in solid angle inside the cone of half-angle
+    theta_max (cos(theta) uniform on [cos(theta_max), 1], azimuth uniform), plus an isotropic thermal
+    velocity of temperature T_eV in the beam frame. Velocities that would point into the surface
+    (possible only when the thermal spread exceeds the drift) are specularly reflected, v -> v - 2 (v.n) n.
+
+    The mean velocity along n of the drift part is v_d (1 + cos(theta_max)) / 2.
+
+    Parameters:
+    -----------
+    N_particles : int
+        Number of particles.
+    drift_speed : float
+        Beam (expansion) speed v_d in m/s.
+    half_angle_deg : float
+        Cone half-angle theta_max in degrees (0 = pencil beam, 90 = hemisphere).
+    T_eV : float
+        Thermal spread (temperature in the beam frame) in eV; 0 gives a mono-energetic beam.
+    mass_kg : float
+        Particle mass in kg.
+    normal : np.ndarray
+        Outward surface normal of shape (3,); it does not need to be normalised.
+
+    Returns:
+    --------
+    v : np.ndarray
+        Velocities of shape (N_particles, 3) in m/s, all with v . n >= 0.
+    """
+    n = np.asarray(normal, dtype=float)
+    n_norm = np.linalg.norm(n)
+    if n_norm == 0.0:
+        raise ValueError("Surface normal must be a non-zero vector")
+    n = n / n_norm
+    # Orthonormal basis (e1, e2, n) of the beam frame
+    helper = np.array([1.0, 0.0, 0.0]) if abs(n[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+    e1 = np.cross(n, helper)
+    e1 /= np.linalg.norm(e1)
+    e2 = np.cross(n, e1)
+
+    cos_max = np.cos(np.deg2rad(half_angle_deg))
+    cos_t = 1.0 - (1.0 - cos_max) * np.random.random_sample(N_particles)
+    sin_t = np.sqrt(np.clip(1.0 - cos_t**2, 0.0, None))
+    phi = 2.0 * np.pi * np.random.random_sample(N_particles)
+    directions = (
+        cos_t[:, None] * n[None, :]
+        + (sin_t * np.cos(phi))[:, None] * e1[None, :]
+        + (sin_t * np.sin(phi))[:, None] * e2[None, :]
+    )
+    v = drift_speed * directions
+    if T_eV > 0.0:
+        v += sample_maxwellian_velocities(N_particles, T_eV, mass_kg)
+    v_n = v @ n
+    v -= 2.0 * np.minimum(v_n, 0.0)[:, None] * n[None, :]
+    return v
+
+
 def generate_half_maxwellian_velocities(N_particles: int, T_eV: float, mass_kg: float) -> Tuple[np.ndarray, np.ndarray, float]:
     """
     Generates thermal velocities for emitted particles in a half-space.
