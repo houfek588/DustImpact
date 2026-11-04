@@ -12,6 +12,8 @@ class SpisSpacecraftConfig:
     weighting_file: str = "inputs/spis_Vw_body.vtk"
     surface_mesh_file: str = ""
     voltage_V: Optional[float] = None
+    capacitance_F: Optional[float] = None
+    resistance_Ohm: Optional[float] = None
 
     @property
     def effective_voltage(self) -> Optional[float]:
@@ -77,6 +79,8 @@ class AnalyticalSpacecraftPart:
     p_start: List[float] = field(default_factory=lambda: [0.0, 0.0, -1.0])
     p_end: List[float] = field(default_factory=lambda: [0.0, 0.0, 1.0])
     voltage_V: Optional[float] = None
+    capacitance_F: Optional[float] = None
+    resistance_Ohm: Optional[float] = None
     parts: List['AnalyticalSpacecraftPart'] = field(default_factory=list)
 
     @property

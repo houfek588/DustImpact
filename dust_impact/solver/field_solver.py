@@ -35,6 +35,8 @@ class FieldSolver3D:
         Ewz_list: List[np.ndarray],
         combined_mask: np.ndarray,
         num_antennas: int,
+        Vw_sc: Optional[np.ndarray] = None,
+        Ew_sc: Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]] = None,
     ):
         self.p = params
         self.toggles = toggles
@@ -53,6 +55,10 @@ class FieldSolver3D:
         self.Ewx_list = Ewx_list
         self.Ewy_list = Ewy_list
         self.Ewz_list = Ewz_list
+
+        # Spacecraft weighting potential and field (floating spacecraft only, else None)
+        self.Vw_sc = Vw_sc
+        self.Ew_sc = Ew_sc
 
         Nx, Ny, Nz = self.p.Nx, self.p.Ny, self.p.Nz
         self.V_self_grid = np.zeros((Nx, Ny, Nz), dtype=np.float64)
@@ -139,10 +145,32 @@ class FieldSolver3D:
             dV[a_idx] = voltage_ant[a_idx, col] - V_ref
         return dV
 
-    def update_background_fields(self, voltage_ant: np.ndarray, step: int) -> None:
+    def spacecraft_potential_perturbation(self, voltage_sc: Optional[np.ndarray], step: int) -> float:
+        """
+        Returns dV_sc = V_sc(t) - V_sc,ref for a floating spacecraft (0 for a fixed spacecraft).
+
+        V_bg_base holds the spacecraft at its bias potential p.V_sc_bias; without the static
+        background the reference is 0 V, mirroring antenna_potential_perturbation.
+
+        Parameters:
+            voltage_sc: Spacecraft voltage history, shape (steps,) [V], or None for a fixed spacecraft.
+            step: Current step; the voltage of the previous step is used (explicit coupling).
+
+        Returns:
+            float: Spacecraft potential perturbation [V].
+        """
+        if voltage_sc is None or self.Vw_sc is None:
+            return 0.0
+        V_ref = self.p.V_sc_bias if self._background_enabled() else 0.0
+        return float(voltage_sc[max(0, step - 1)] - V_ref)
+
+    def update_background_fields(
+        self, voltage_ant: np.ndarray, step: int, voltage_sc: Optional[np.ndarray] = None
+    ) -> None:
         """
         Sets the external electric field to the static background (if enabled) plus the field of
-        the antenna potential perturbations, E = E_bg_base + sum_a dV_a * E_w,a.
+        the conductor potential perturbations, E = E_bg_base + sum_a dV_a * E_w,a (+ dV_sc * E_w,sc
+        for a floating spacecraft).
         """
         if self._background_enabled():
             Ex_tot = self.Ex_bg_base.copy()
@@ -160,17 +188,30 @@ class FieldSolver3D:
                 Ey_tot += dV * self.Ewy_list[a_idx]
                 Ez_tot += dV * self.Ewz_list[a_idx]
 
+        dV_sc = self.spacecraft_potential_perturbation(voltage_sc, step)
+        if self.Ew_sc is not None and abs(dV_sc) > 1e-9:
+            Ex_tot += dV_sc * self.Ew_sc[0]
+            Ey_tot += dV_sc * self.Ew_sc[1]
+            Ez_tot += dV_sc * self.Ew_sc[2]
+
         self.Ex_bg, self.Ey_bg, self.Ez_bg = Ex_tot, Ey_tot, Ez_tot
 
-    def background_potential(self, voltage_ant: np.ndarray, step: int, Vw_list: Optional[List[np.ndarray]]) -> np.ndarray:
+    def background_potential(
+        self,
+        voltage_ant: np.ndarray,
+        step: int,
+        Vw_list: Optional[List[np.ndarray]],
+        voltage_sc: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
         """
         External potential consistent with update_background_fields:
-        V = V_bg_base (if enabled) + sum_a dV_a * Vw_a.
+        V = V_bg_base (if enabled) + sum_a dV_a * Vw_a (+ dV_sc * Vw_sc for a floating spacecraft).
 
         Parameters:
             voltage_ant: Antenna voltage history, shape (num_antennas, steps) [V].
             step: Current step.
             Vw_list: Weighting potentials per antenna; if None, the perturbation is omitted.
+            voltage_sc: Spacecraft voltage history (floating spacecraft) or None.
 
         Returns:
             np.ndarray: External potential on the grid [V].
@@ -181,6 +222,9 @@ class FieldSolver3D:
             for a_idx, dV in enumerate(dV_all):
                 if abs(dV) > 1e-6 and a_idx < len(Vw_list):
                     V += dV * Vw_list[a_idx]
+        dV_sc = self.spacecraft_potential_perturbation(voltage_sc, step)
+        if abs(dV_sc) > 1e-9:
+            V += dV_sc * self.Vw_sc
         return V
 
     def solve_poisson(self, ensemble) -> None:

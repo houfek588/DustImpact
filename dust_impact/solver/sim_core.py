@@ -46,6 +46,7 @@ class DustImpactSimulation3D:
     ):
         antenna_geometries = None
         spacecraft_geometry = None
+        Vw_sc, Ew_sc, capacitance_matrix = None, None, None
         if hasattr(V_bg, 'antenna_masks_3d') and hasattr(V_bg, 'spacecraft_mask_3d'):
             geom = V_bg
             V_bg = geom.V_bg
@@ -56,6 +57,10 @@ class DustImpactSimulation3D:
             spacecraft_mask_3d = geom.spacecraft_mask_3d
             antenna_geometries = getattr(geom, 'antenna_geometries', None)
             spacecraft_geometry = getattr(geom, 'spacecraft_geometry', None)
+            Vw_sc = getattr(geom, 'Vw_sc', None)
+            if Vw_sc is not None:
+                Ew_sc = (geom.Ewx_sc, geom.Ewy_sc, geom.Ewz_sc)
+            capacitance_matrix = getattr(geom, 'capacitance_matrix', None)
 
         if hasattr(params, 'geometry'):
             geom_cfg = params.geometry
@@ -79,6 +84,16 @@ class DustImpactSimulation3D:
         for mask in self.antenna_masks_3d:
             self.combined_mask |= mask
 
+        # Floating spacecraft: the body becomes an extra circuit electrode with its own weighting potential
+        self.floating_spacecraft = bool(getattr(toggles, 'enable_floating_spacecraft', False))
+        if self.floating_spacecraft and Vw_sc is None:
+            raise ValueError(
+                "enable_floating_spacecraft requires a PreparedGeometry3D with the spacecraft weighting potential."
+            )
+        if not self.floating_spacecraft:
+            Vw_sc, Ew_sc = None, None
+        self.Vw_sc = Vw_sc
+
         # Subsystems
         self.particles = ParticleEnsemble(
             params, spacecraft_mask_3d, self.num_antennas,
@@ -87,9 +102,13 @@ class DustImpactSimulation3D:
         )
         self.field_solver = FieldSolver3D(
             params, toggles, V_bg, Ex_bg, Ey_bg, Ez_bg,
-            Ewx_list, Ewy_list, Ewz_list, self.combined_mask, self.num_antennas
+            Ewx_list, Ewy_list, Ewz_list, self.combined_mask, self.num_antennas,
+            Vw_sc=Vw_sc, Ew_sc=Ew_sc,
         )
-        self.collector = AntennaCircuitCollector(params, toggles, self.num_antennas)
+        self.collector = AntennaCircuitCollector(
+            params, toggles, self.num_antennas,
+            capacitance_matrix=capacitance_matrix if self.floating_spacecraft else None,
+        )
 
         # Direct references to particle arrays for zero-overhead backward compatibility
         self.x_e = self.particles.x_e
@@ -120,6 +139,8 @@ class DustImpactSimulation3D:
 
         # Weighting potentials and fields references
         self.Vw_grids = Vw_grids
+        # Weighting potentials of all circuit electrodes (antennas, then the floating spacecraft)
+        self.Vw_electrodes = list(Vw_grids or []) + ([Vw_sc] if Vw_sc is not None else [])
         self.Ewx_list = Ewx_list
         self.Ewy_list = Ewy_list
         self.Ewz_list = Ewz_list
@@ -222,7 +243,7 @@ class DustImpactSimulation3D:
         self.field_solver._build_poisson_solver()
 
     def _update_background_fields(self, step: int) -> None:
-        self.field_solver.update_background_fields(self.collector.voltage_ant, step)
+        self.field_solver.update_background_fields(self.collector.voltage_ant, step, self.collector.voltage_sc)
 
     def _solve_poisson_equation(self) -> None:
         self.field_solver.solve_poisson(self.particles)
@@ -240,7 +261,7 @@ class DustImpactSimulation3D:
             self.field_solver, self.antenna_masks_3d,
             self.Ewx_list, self.Ewy_list, self.Ewz_list,
             enable_collection=enable_coll,
-            Vw_list=self.Vw_grids
+            Vw_list=self.Vw_electrodes
         )
 
     def _save_history(self, current_time: float, stream_to_disk: bool = False, step: Optional[int] = None) -> Dict[str, np.ndarray]:
@@ -251,7 +272,9 @@ class DustImpactSimulation3D:
         if step is None:
             step = int(round(current_time / self.p.dt))
         # step + 1 selects the antenna voltage reached at the end of this step
-        V_ext = self.field_solver.background_potential(self.collector.voltage_ant, step + 1, self.Vw_grids)
+        V_ext = self.field_solver.background_potential(
+            self.collector.voltage_ant, step + 1, self.Vw_grids, self.collector.voltage_sc
+        )
         V_cur = V_ext + self.field_solver.V_self_grid
         rho_cur = self.field_solver.rho_grid.copy()
         stride = self.p.plot_stride
@@ -315,6 +338,11 @@ class DustImpactSimulation3D:
             'antenna_capacitance_F': list(self.p.C_ant),
             'antenna_resistance_Ohm': list(self.p.R_ant),
             'antenna_bias_voltage_V': list(self.p.V_bias),
+            'floating_spacecraft': bool(self.floating_spacecraft),
+            'spacecraft_bias_voltage_V': float(self.p.V_sc_bias),
+            'spacecraft_capacitance_F': float(self.p.C_sc),
+            'spacecraft_resistance_Ohm': float(self.p.R_sc) if self.p.R_sc is not None else None,
+            'circuit_capacitance_matrix_F': self.collector.C_tot.tolist(),
             'impact_location_xyz_m': list(self.p.impact_pos) if getattr(self.p, 'impact_pos', None) is not None else None,
             'impact_normal': list(self.p.impact_normal) if getattr(self.p, 'impact_normal', None) is not None else None,
             'total_impact_charge_C': float(self.p.total_impact_charge_C),
@@ -344,6 +372,10 @@ class DustImpactSimulation3D:
             'smooth_collected': smoothed['smooth_collected'],
             'smooth_total': smoothed['smooth_total'],
             'voltage_ant': self.collector.voltage_ant,
+            **({
+                'voltage_sc': self.collector.voltage_sc,
+                'current_sc': self.collector.current_sc,
+            } if self.floating_spacecraft else {}),
             'history': self.history,
             'metadata': self.get_metadata_dict(),
         }
@@ -355,7 +387,7 @@ class DustImpactSimulation3D:
 
         # 2. Update background fields from antenna dynamic voltages (also at step 0, so that
         #    the initial field already reflects the bias / background toggles)
-        self.field_solver.update_background_fields(self.collector.voltage_ant, step_idx)
+        self.field_solver.update_background_fields(self.collector.voltage_ant, step_idx, self.collector.voltage_sc)
 
         # 3. Poisson equation solve
         self.field_solver.solve_poisson(self.particles)
@@ -373,7 +405,7 @@ class DustImpactSimulation3D:
                 self.Ewx_list, self.Ewy_list, self.Ewz_list,
                 enable_collection=enable_coll,
                 boundary_mode=bnd_mode,
-                Vw_list=self.Vw_grids
+                Vw_list=self.Vw_electrodes
             )
             ci, ii = self.particles.push_species(
                 self.particles.x_i, self.particles.y_i, self.particles.z_i,
@@ -384,7 +416,7 @@ class DustImpactSimulation3D:
                 self.Ewx_list, self.Ewy_list, self.Ewz_list,
                 enable_collection=enable_coll,
                 boundary_mode=bnd_mode,
-                Vw_list=self.Vw_grids
+                Vw_list=self.Vw_electrodes
             )
             self.collector.record_step_currents(step_idx, ce, ci, ie, ii)
 

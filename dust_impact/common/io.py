@@ -140,7 +140,7 @@ def save_results_h5(results: Dict[str, Any], filepath: str, metadata: Optional[D
 
         # 2. Signals group
         sig_grp = h5f.create_group('signals')
-        for sig_key in ['smooth_induced', 'smooth_collected', 'smooth_total', 'voltage_ant']:
+        for sig_key in ['smooth_induced', 'smooth_collected', 'smooth_total', 'voltage_ant', 'voltage_sc', 'current_sc']:
             if sig_key in results:
                 sig_grp.create_dataset(sig_key, data=np.array(results[sig_key]), compression='gzip')
 
@@ -308,7 +308,7 @@ class HDF5SimulationWriter:
         """Write final voltage and currents arrays and close file."""
         sig_grp = self.h5f.create_group('signals')
         for k, v in signals_dict.items():
-            if k in ['smooth_induced', 'smooth_collected', 'smooth_total', 'voltage_ant']:
+            if k in ['smooth_induced', 'smooth_collected', 'smooth_total', 'voltage_ant', 'voltage_sc', 'current_sc']:
                 sig_grp.create_dataset(k, data=np.array(v), compression='gzip')
         self.h5f.close()
 

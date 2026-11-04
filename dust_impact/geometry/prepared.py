@@ -21,6 +21,7 @@ from dust_impact.geometry.surface import compute_impact_intersection_and_normal
 from dust_impact.geometry.analytical import generate_synthetic_analytical_fields
 from dust_impact.numerics.poisson import DirichletLaplaceSolver3D
 from dust_impact.numerics.gradient import ConductorGradient3D
+from dust_impact.physics.ramo_shockley import vacuum_capacitance_matrix
 from dust_impact.geometry.spis_loader import (
     read_spis_mesh,
     extract_potential_from_mesh,
@@ -53,6 +54,13 @@ class PreparedGeometry3D:
         Exact impact position [x, y, z] on spacecraft surface in meters.
     impact_normal : List[float]
         Outward unit surface normal [nx, ny, nz] at impact point.
+    Vw_sc : Optional[np.ndarray]
+        Ramo-Shockley weighting potential of the spacecraft body (1 on the body, 0 on the antennas and
+        on the outer boundary); used by the floating-spacecraft circuit.
+    Ewx_sc, Ewy_sc, Ewz_sc : Optional[np.ndarray]
+        Field of the spacecraft weighting potential (-grad Vw_sc).
+    capacitance_matrix : Optional[np.ndarray]
+        Vacuum capacitance matrix [F] of the conductors in circuit order (antennas, then spacecraft).
     """
     V_bg: np.ndarray
     Vw_grids: List[np.ndarray]
@@ -68,6 +76,11 @@ class PreparedGeometry3D:
     impact_normal: Optional[List[float]] = None
     antenna_geometries: Optional[List[Any]] = None
     spacecraft_geometry: Optional[Any] = None
+    Vw_sc: Optional[np.ndarray] = None
+    Ewx_sc: Optional[np.ndarray] = None
+    Ewy_sc: Optional[np.ndarray] = None
+    Ewz_sc: Optional[np.ndarray] = None
+    capacitance_matrix: Optional[np.ndarray] = None
 
     @property
     def num_antennas(self) -> int:
@@ -324,6 +337,14 @@ def build_simulation_geometry(params: Any) -> PreparedGeometry3D:
 
     # Fields use one-sided differences on conductor surface nodes (see ConductorGradient3D)
     grad = ConductorGradient3D(conductor_nodes, (params.dx, params.dy, params.dz))
+    # Spacecraft weighting potential for the floating-spacecraft circuit (the sampled Vw_body above
+    # keeps the SPIS outer boundary and is therefore not a Ramo-Shockley weighting potential)
+    Vw_sc = laplace.solve(spacecraft_mask_3d.astype(np.float64))
+    Ewx_sc, Ewy_sc, Ewz_sc = grad.electric_field(Vw_sc)
+    capacitance_matrix = vacuum_capacitance_matrix(
+        Vw_grids + [Vw_sc], antenna_masks_3d + [spacecraft_mask_3d], (params.dx, params.dy, params.dz)
+    )
+
     Ewx_list, Ewy_list, Ewz_list = [], [], []
     for Vw in Vw_grids:
         Ewx, Ewy, Ewz = grad.electric_field(Vw)
@@ -387,6 +408,9 @@ def build_simulation_geometry(params: Any) -> PreparedGeometry3D:
     Ewx_list = [np.ascontiguousarray(e, dtype=target_dtype) for e in Ewx_list]
     Ewy_list = [np.ascontiguousarray(e, dtype=target_dtype) for e in Ewy_list]
     Ewz_list = [np.ascontiguousarray(e, dtype=target_dtype) for e in Ewz_list]
+    Vw_sc, Ewx_sc, Ewy_sc, Ewz_sc = (
+        np.ascontiguousarray(f, dtype=target_dtype) for f in (Vw_sc, Ewx_sc, Ewy_sc, Ewz_sc)
+    )
 
     return PreparedGeometry3D(
         V_bg=V_bg_grid,
@@ -403,5 +427,7 @@ def build_simulation_geometry(params: Any) -> PreparedGeometry3D:
         impact_normal=impact_normal,
         antenna_geometries=getattr(params, 'antenna_geometries', None),
         # The SPIS body is only known as a conductor mask; an analytical shape would be the unused default
-        spacecraft_geometry=None
+        spacecraft_geometry=None,
+        Vw_sc=Vw_sc, Ewx_sc=Ewx_sc, Ewy_sc=Ewy_sc, Ewz_sc=Ewz_sc,
+        capacitance_matrix=capacitance_matrix,
     )

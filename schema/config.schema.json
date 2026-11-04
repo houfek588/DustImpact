@@ -177,6 +177,34 @@
                     "description": "Electrostatic potential of this part [V]",
                     "title": "Voltage V"
                 },
+                "capacitance_F": {
+                    "anyOf": [
+                        {
+                            "minimum": 0.0,
+                            "type": "number"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "default": null,
+                    "description": "Spacecraft capacitance to ground of the readout (amplifier, cables, stray) [F]; used only with toggles.enable_floating_spacecraft, where the vacuum capacitance matrix of all conductors is added (default 0)",
+                    "title": "Capacitance F"
+                },
+                "resistance_Ohm": {
+                    "anyOf": [
+                        {
+                            "exclusiveMinimum": 0.0,
+                            "type": "number"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "default": null,
+                    "description": "Spacecraft bias resistance to its bias potential voltage_V [Ohm]; used only with toggles.enable_floating_spacecraft (default: no leakage)",
+                    "title": "Resistance Ohm"
+                },
                 "parts": {
                     "description": "Sub-parts for composite spacecraft",
                     "items": {
@@ -816,6 +844,34 @@
                     "default": null,
                     "description": "Potential of spacecraft body [V]; ignored when background_potential_file is given (taken from the SPIS background)",
                     "title": "Voltage V"
+                },
+                "capacitance_F": {
+                    "anyOf": [
+                        {
+                            "minimum": 0.0,
+                            "type": "number"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "default": null,
+                    "description": "Spacecraft capacitance to ground of the readout (amplifier, cables, stray) [F]; used only with toggles.enable_floating_spacecraft, where the vacuum capacitance matrix of all conductors is added (default 0)",
+                    "title": "Capacitance F"
+                },
+                "resistance_Ohm": {
+                    "anyOf": [
+                        {
+                            "exclusiveMinimum": 0.0,
+                            "type": "number"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "default": null,
+                    "description": "Spacecraft bias resistance to its bias potential voltage_V [Ohm]; used only with toggles.enable_floating_spacecraft (default: no leakage)",
+                    "title": "Resistance Ohm"
                 }
             },
             "title": "SpisSpacecraftSchema",
@@ -883,6 +939,12 @@
                     ],
                     "title": "Particle Spacecraft Mode",
                     "type": "string"
+                },
+                "enable_floating_spacecraft": {
+                    "default": false,
+                    "description": "Let the spacecraft body potential float: it is charged by collected and induced (Ramo-Shockley) currents and coupled to the antennas through the vacuum capacitance matrix of the conductors plus the configured readout capacitances; antenna capacitance_F then means the readout capacitance only. When false the spacecraft is held at its fixed potential and each antenna uses capacitance_F as its total capacitance",
+                    "title": "Enable Floating Spacecraft",
+                    "type": "boolean"
                 }
             },
             "title": "TogglesSchema",

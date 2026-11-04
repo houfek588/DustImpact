@@ -34,15 +34,17 @@ def _boundary_values(field: np.ndarray) -> np.ndarray:
     ])
 
 
-def _ramo_violations(Vw_grids, antenna_masks, spacecraft_mask, h: float) -> list:
+def _ramo_violations(Vw_grids, antenna_masks, spacecraft_mask, spacing) -> list:
     """
     Measures how far each weighting potential deviates from the Ramo-Shockley boundary value problem.
 
     Returns one dict per antenna with the maximum |Vw| on the outer boundary and on the other
     conductors, the number of antenna nodes on the outer boundary, the mean Vw on the own antenna
-    and the maximum normalised discrete Laplacian h^2 |Lap Vw| / 6 in vacuum at least two cells
-    away from any conductor.
+    and the maximum normalised discrete Laplacian |Lap Vw| / sum_a(2 / h_a^2) in vacuum at least two
+    cells away from any conductor (h^2 |Lap Vw| / 6 for cubic cells; spacing = (dx, dy, dz)).
     """
+    w = np.array([1.0 / h**2 for h in spacing])
+    w = w / (2.0 * w.sum())
     conductors = spacecraft_mask.copy()
     for m in antenna_masks:
         conductors |= m
@@ -54,10 +56,12 @@ def _ramo_violations(Vw_grids, antenna_masks, spacecraft_mask, h: float) -> list
         for b, m in enumerate(antenna_masks):
             if b != a:
                 others |= m
+        c = Vw[1:-1, 1:-1, 1:-1]
         lap = (
-            Vw[2:, 1:-1, 1:-1] + Vw[:-2, 1:-1, 1:-1] + Vw[1:-1, 2:, 1:-1] + Vw[1:-1, :-2, 1:-1]
-            + Vw[1:-1, 1:-1, 2:] + Vw[1:-1, 1:-1, :-2] - 6.0 * Vw[1:-1, 1:-1, 1:-1]
-        ) / 6.0
+            w[0] * (Vw[2:, 1:-1, 1:-1] + Vw[:-2, 1:-1, 1:-1] - 2.0 * c)
+            + w[1] * (Vw[1:-1, 2:, 1:-1] + Vw[1:-1, :-2, 1:-1] - 2.0 * c)
+            + w[2] * (Vw[1:-1, 1:-1, 2:] + Vw[1:-1, 1:-1, :-2] - 2.0 * c)
+        )
         report.append({
             "own_mean": float(np.mean(Vw[own])),
             "boundary_max": float(np.max(np.abs(_boundary_values(Vw)))),
@@ -79,15 +83,10 @@ class TestWeightingPotentials(unittest.TestCase):
                 self.assertLess(r["other_conductors_max"], tol, "Vw does not vanish on the other conductors")
                 self.assertLess(r["laplacian_max"], tol, "Vw is not harmonic in vacuum")
 
-    @unittest.expectedFailure
     def test_analytical_geometry_weighting_potentials(self):
         """
-        Weighting potentials of the analytical geometry solve the Ramo-Shockley problem on the PIC grid.
-
-        KNOWN FAILURE: geometry.analytical.solve_laplace_dirichlet_3d keeps the Dirichlet nodes as unit
-        rows (non-symmetric matrix) and stops PyAMG-GMRES after 50 iterations at a preconditioned
-        tolerance of 1e-5. The local residual next to the antennas reaches h^2 |Lap Vw| / 6 ~ 3e-2 and
-        Vw differs from a converged solution by up to 0.055 (about 10 % locally).
+        Weighting potentials of the analytical geometry solve the Ramo-Shockley problem on the PIC grid:
+        Vw_a = 1 on antenna a, 0 on the other conductors and on the outer boundary, and harmonic in vacuum.
         """
         with contextlib.redirect_stdout(io.StringIO()):
             params, _, _ = setup_simulation_parameters_3d(
@@ -96,7 +95,7 @@ class TestWeightingPotentials(unittest.TestCase):
             geom = build_analytical_simulation_geometry(params, params.geometry.analytical)
         self.assertGreater(geom.num_antennas, 0)
         report = _ramo_violations(
-            geom.Vw_grids, geom.antenna_masks_3d, geom.spacecraft_mask_3d, params.dx
+            geom.Vw_grids, geom.antenna_masks_3d, geom.spacecraft_mask_3d, (params.dx, params.dy, params.dz)
         )
         self._assert_ramo_conditions(report, tol=1e-6)
 
@@ -132,7 +131,7 @@ class TestWeightingPotentials(unittest.TestCase):
         """
         params, geom = self._spis_geometry()
         self.assertEqual(geom.num_antennas, 3)
-        report = _ramo_violations(geom.Vw_grids, geom.antenna_masks_3d, geom.spacecraft_mask_3d, params.dx)
+        report = _ramo_violations(geom.Vw_grids, geom.antenna_masks_3d, geom.spacecraft_mask_3d, (params.dx, params.dy, params.dz))
         for a, r in enumerate(report):
             with self.subTest(antenna=a):
                 self.assertAlmostEqual(r["own_mean"], 1.0, places=6)

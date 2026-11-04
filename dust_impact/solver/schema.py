@@ -58,6 +58,17 @@ class SpisSpacecraftSchema(StrictBaseModel):
         None,
         description="Potential of spacecraft body [V]; ignored when background_potential_file is given (taken from the SPIS background)"
     )
+    capacitance_F: Optional[Annotated[float, Field(ge=0.0)]] = Field(
+        None,
+        description="Spacecraft capacitance to ground of the readout (amplifier, cables, stray) [F]; used only with "
+                    "toggles.enable_floating_spacecraft, where the vacuum capacitance matrix of all conductors is added "
+                    "(default 0)"
+    )
+    resistance_Ohm: Optional[Annotated[float, Field(gt=0.0)]] = Field(
+        None,
+        description="Spacecraft bias resistance to its bias potential voltage_V [Ohm]; used only with "
+                    "toggles.enable_floating_spacecraft (default: no leakage)"
+    )
 
 
 class SpisAntennaSchema(StrictBaseModel):
@@ -150,6 +161,17 @@ class AnalyticalSpacecraftPartSchema(StrictBaseModel):
     voltage_V: Optional[float] = Field(
         None,
         description="Electrostatic potential of this part [V]"
+    )
+    capacitance_F: Optional[Annotated[float, Field(ge=0.0)]] = Field(
+        None,
+        description="Spacecraft capacitance to ground of the readout (amplifier, cables, stray) [F]; used only with "
+                    "toggles.enable_floating_spacecraft, where the vacuum capacitance matrix of all conductors is added "
+                    "(default 0)"
+    )
+    resistance_Ohm: Optional[Annotated[float, Field(gt=0.0)]] = Field(
+        None,
+        description="Spacecraft bias resistance to its bias potential voltage_V [Ohm]; used only with "
+                    "toggles.enable_floating_spacecraft (default: no leakage)"
     )
     parts: List["AnalyticalSpacecraftPartSchema"] = Field(
         default_factory=list,
@@ -267,6 +289,14 @@ class TogglesSchema(StrictBaseModel):
     particle_spacecraft_mode: Literal["absorb", "reflect"] = Field(
         "absorb",
         description="Particle interaction mode on spacecraft surface ('absorb' or 'reflect')"
+    )
+    enable_floating_spacecraft: bool = Field(
+        False,
+        description="Let the spacecraft body potential float: it is charged by collected and induced (Ramo-Shockley) "
+                    "currents and coupled to the antennas through the vacuum capacitance matrix of the conductors plus "
+                    "the configured readout capacitances; antenna capacitance_F then means the readout capacitance only. "
+                    "When false the spacecraft is held at its fixed potential and each antenna uses capacitance_F as its "
+                    "total capacitance"
     )
 
 

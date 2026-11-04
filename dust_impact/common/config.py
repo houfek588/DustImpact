@@ -19,6 +19,7 @@ class BaseSimulationToggles:
     circuit_solver: str = "rk4"
     particle_boundary_mode: str = "open"
     particle_spacecraft_mode: str = "absorb"
+    enable_floating_spacecraft: bool = False
 
 
 @dataclass

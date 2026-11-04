@@ -6,11 +6,10 @@ Provides exact potentials V and electric fields E for spheres, boxes, and antenn
 
 from typing import Tuple, Sequence, Optional, List, Any
 import numpy as np
-import scipy.sparse as sp
-import scipy.sparse.linalg as spla
 from dust_impact.geometry.voxelizer import voxelize_sphere, voxelize_box, voxelize_cylinder
-from dust_impact.numerics.poisson import build_pyamg_solver, HAS_PYAMG
+from dust_impact.numerics.poisson import DirichletLaplaceSolver3D
 from dust_impact.numerics.gradient import ConductorGradient3D
+from dust_impact.physics.ramo_shockley import vacuum_capacitance_matrix
 
 
 class AnalyticalConductor:
@@ -255,79 +254,41 @@ def solve_laplace_dirichlet_3d(
     dx: float, dy: float, dz: float,
     dirichlet_mask: np.ndarray,
     rhs_values: List[np.ndarray],
-    debye_length: Optional[float] = None
 ) -> List[np.ndarray]:
     """
-    Solves 3D Laplace/screened-Poisson equation on Cartesian grid for multiple RHS Dirichlet conditions
-    sharing the exact same Dirichlet node pattern (conductors + outer boundaries).
+    Solves the discrete 3D Laplace equation for several Dirichlet problems sharing one node pattern.
+
+    The fixed nodes are the conductor nodes (dirichlet_mask, values taken from each rhs grid) and the
+    outer faces of the grid (V = 0, the grounded boundary of the PIC self-field). The 7-point stencil
+    and the boundary treatment are those of the PIC Poisson solver, which keeps the weighting
+    potentials consistent with the Ramo-Shockley theorem on the grid. The solves use
+    DirichletLaplaceSolver3D (eliminated Dirichlet nodes, AMG-preconditioned CG with a checked
+    residual); the AMG hierarchy is built once and shared by all right-hand sides.
+
+    Parameters
+    ----------
+    Nx, Ny, Nz : int
+        Grid dimensions.
+    dx, dy, dz : float
+        Grid spacings in metres.
+    dirichlet_mask : np.ndarray
+        Boolean array (Nx, Ny, Nz), True on conductor nodes.
+    rhs_values : List[np.ndarray]
+        Conductor potentials for each problem, shape (Nx, Ny, Nz); only values on dirichlet_mask are used.
+
+    Returns
+    -------
+    List[np.ndarray]
+        Discrete-harmonic fields equal to the prescribed values on the conductors and 0 on the outer faces.
     """
-    N_tot = Nx * Ny * Nz
-    dx2, dy2, dz2 = dx**2, dy**2, dz**2
+    conductors = np.asarray(dirichlet_mask, dtype=bool)
+    fixed_mask = conductors.copy()
+    fixed_mask[[0, -1], :, :] = True
+    fixed_mask[:, [0, -1], :] = True
+    fixed_mask[:, :, [0, -1]] = True
 
-    # Outer boundary nodes are also Dirichlet (V = 0)
-    boundary_mask = np.zeros((Nx, Ny, Nz), dtype=bool)
-    boundary_mask[0, :, :] = True
-    boundary_mask[Nx - 1, :, :] = True
-    boundary_mask[:, 0, :] = True
-    boundary_mask[:, Ny - 1, :] = True
-    boundary_mask[:, :, 0] = True
-    boundary_mask[:, :, Nz - 1] = True
-
-    fixed_mask = boundary_mask | dirichlet_mask
-    fixed_indices = np.where(fixed_mask.ravel())[0]
-
-    # 1D second differences
-    ex = np.ones(Nx)
-    Dxx = sp.diags([-ex / dx2, 2 * ex / dx2, -ex / dx2], [-1, 0, 1], shape=(Nx, Nx), dtype=float)
-    ey = np.ones(Ny)
-    Dyy = sp.diags([-ey / dy2, 2 * ey / dy2, -ey / dy2], [-1, 0, 1], shape=(Ny, Ny), dtype=float)
-    ez = np.ones(Nz)
-    Dzz = sp.diags([-ez / dz2, 2 * ez / dz2, -ez / dz2], [-1, 0, 1], shape=(Nz, Nz), dtype=float)
-
-    # 3D Laplacian = Dxx (x) I (x) I + I (x) Dyy (x) I + I (x) I (x) Dzz
-    A = sp.kronsum(sp.kronsum(Dxx, Dyy), Dzz, format='lil')
-
-    if debye_length is not None and debye_length > 0:
-        helmholtz_term = 1.0 / (debye_length ** 2)
-        A.setdiag(A.diagonal() + helmholtz_term)
-
-    # Enforce Dirichlet rows: row becomes unit vector [0 ... 1 ... 0]
-    for idx in fixed_indices:
-        A.rows[idx] = [idx]
-        A.data[idx] = [1.0]
-
-    A_csr = A.tocsr()
-
-    # Build solver hierarchy once
-    if HAS_PYAMG:
-        solver = build_pyamg_solver(A_csr)
-        def solve_func(b_vec: np.ndarray) -> np.ndarray:
-            try:
-                return solver.solve(b_vec, tol=1e-5, maxiter=50, accel='gmres')
-            except Exception:
-                return solver.solve(b_vec, tol=1e-4, maxiter=50)
-    else:
-        solver = spla.factorized(A.tocsc())
-        solve_func = lambda b_vec: solver(b_vec)
-
-    solutions = []
-    for rhs_grid in rhs_values:
-        b = np.zeros(N_tot, dtype=float)
-        b[fixed_indices] = rhs_grid.ravel()[fixed_indices]
-        sol_1d = solve_func(b)
-
-        # Apply physical bounding (maximum principle of Laplace/Helmholtz equation)
-        # Potential outside conductors cannot exceed Dirichlet boundary extrema
-        v_fixed = rhs_grid.ravel()[fixed_indices]
-        if len(v_fixed) > 0:
-            v_min = min(0.0, float(np.min(v_fixed)))
-            v_max = max(0.0, float(np.max(v_fixed)))
-            sol_1d = np.nan_to_num(sol_1d, nan=0.0)
-            sol_1d = np.clip(sol_1d, v_min, v_max)
-
-        solutions.append(sol_1d.reshape((Nx, Ny, Nz)))
-
-    return solutions
+    solver = DirichletLaplaceSolver3D(fixed_mask, (dx, dy, dz))
+    return [solver.solve(np.where(conductors, rhs_grid, 0.0)) for rhs_grid in rhs_values]
 
 
 def build_analytical_simulation_geometry(params: Any, analytical_config: Any):
@@ -349,14 +310,17 @@ def build_analytical_simulation_geometry(params: Any, analytical_config: Any):
     else:
         spacecraft_mask = voxelize_sphere(X, Y, Z, center=(0, 0, 0), radius=1.0)
 
-    # 2. Antenna masks
+    # 2. Antenna masks, disjoint from the spacecraft and from each other so that every conductor node
+    # has a single owner (Vw_a = 1 only on antenna a, the background takes that conductor's potential)
     ant_geoms = getattr(analytical_config, 'antennas', [])
     antenna_masks = []
+    occupied = spacecraft_mask.copy()
     for ant in ant_geoms:
         p_start = getattr(ant, 'p_start', [0.0, 0.0, 0.0])
         p_end = getattr(ant, 'p_end', [1.0, 0.0, 0.0])
         radius = getattr(ant, 'radius', 0.015)
-        m = voxelize_cylinder(X, Y, Z, p_start, p_end, radius)
+        m = voxelize_cylinder(X, Y, Z, p_start, p_end, radius) & ~occupied
+        occupied |= m
         antenna_masks.append(m)
 
     num_antennas = len(antenna_masks)
@@ -384,6 +348,9 @@ def build_analytical_simulation_geometry(params: Any, analytical_config: Any):
     if V_sc is None:
         V_sc = params.Vf
 
+    # Weighting potential of the spacecraft body (floating-spacecraft circuit)
+    rhs_list.append(spacecraft_mask.astype(float))
+
     rhs_bg = np.zeros((Nx, Ny, Nz), dtype=float)
     rhs_bg[spacecraft_mask] = float(V_sc)
     effective_biases = []
@@ -397,26 +364,19 @@ def build_analytical_simulation_geometry(params: Any, analytical_config: Any):
         rhs_bg[antenna_masks[i]] = v_ant
     rhs_list.append(rhs_bg)
 
-    # 5. Solve Laplace equation on grid
-    debye_len = getattr(params, 'debye_length', None) if getattr(params, 'enable_plasma_self_field', True) else None
+    # 5. Solve the vacuum Laplace equation on the grid (conductor values are imposed exactly)
     solved_fields = solve_laplace_dirichlet_3d(
         Nx, Ny, Nz, params.dx, params.dy, params.dz,
         dirichlet_mask=all_conductors_mask,
         rhs_values=rhs_list,
-        debye_length=None  # Laplace for vacuum/shielded boundary
     )
 
     Vw_grids = solved_fields[:num_antennas]
-    V_bg = solved_fields[num_antennas]
-
-    # Enforce exact equipotentials inside conductors
-    for i in range(num_antennas):
-        Vw_grids[i][antenna_masks[i]] = 1.0
-        Vw_grids[i][spacecraft_mask] = 0.0
-
-    V_bg[spacecraft_mask] = float(V_sc)
-    for i in range(num_antennas):
-        V_bg[antenna_masks[i]] = effective_biases[i]
+    Vw_sc = solved_fields[num_antennas]
+    V_bg = solved_fields[num_antennas + 1]
+    capacitance_matrix = vacuum_capacitance_matrix(
+        Vw_grids + [Vw_sc], antenna_masks + [spacecraft_mask], (params.dx, params.dy, params.dz)
+    )
 
     params.antenna_bias_voltage_V = effective_biases
     params.V_bias = effective_biases
@@ -430,6 +390,7 @@ def build_analytical_simulation_geometry(params: Any, analytical_config: Any):
         Ewy_list.append(ewy)
         Ewz_list.append(ewz)
 
+    Ewx_sc, Ewy_sc, Ewz_sc = grad.electric_field(Vw_sc)
     Ex_bg, Ey_bg, Ez_bg = grad.electric_field(V_bg)
 
     # 7. Impact intersection & normal (only for localized dust impact)
@@ -455,6 +416,9 @@ def build_analytical_simulation_geometry(params: Any, analytical_config: Any):
     Ewx_list = [np.ascontiguousarray(e, dtype=target_dtype) for e in Ewx_list]
     Ewy_list = [np.ascontiguousarray(e, dtype=target_dtype) for e in Ewy_list]
     Ewz_list = [np.ascontiguousarray(e, dtype=target_dtype) for e in Ewz_list]
+    Vw_sc, Ewx_sc, Ewy_sc, Ewz_sc = (
+        np.ascontiguousarray(f, dtype=target_dtype) for f in (Vw_sc, Ewx_sc, Ewy_sc, Ewz_sc)
+    )
 
     return PreparedGeometry3D(
         V_bg=V_bg,
@@ -471,4 +435,6 @@ def build_analytical_simulation_geometry(params: Any, analytical_config: Any):
         impact_normal=impact_normal,
         antenna_geometries=ant_geoms,
         spacecraft_geometry=sc_part,
+        Vw_sc=Vw_sc, Ewx_sc=Ewx_sc, Ewy_sc=Ewy_sc, Ewz_sc=Ewz_sc,
+        capacitance_matrix=capacitance_matrix,
     )

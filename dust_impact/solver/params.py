@@ -6,7 +6,7 @@ antenna probe circuits, impact parameters, and runtime toggles.
 """
 
 from dataclasses import dataclass, field, fields
-from typing import List, Optional
+from typing import Any, List, Optional
 import numpy as np
 
 from dust_impact.physics.constants import e
@@ -386,6 +386,30 @@ class SimulationParams3D(BaseSimulationParams):
     @V_bias.setter
     def V_bias(self, val: List[float]) -> None:
         self.antenna_bias_voltage_V = list(val)
+
+    def _spacecraft_config(self) -> Any:
+        """Spacecraft entry of the active geometry source (analytical part or SPIS spacecraft), if any."""
+        geom = getattr(self, 'geometry', None)
+        source_cfg = getattr(geom, getattr(geom, 'source', ''), None)
+        return getattr(source_cfg, 'spacecraft', None)
+
+    @property
+    def C_sc(self) -> float:
+        """Readout capacitance of the spacecraft to ground [F] (floating spacecraft only; default 0)."""
+        c = getattr(self._spacecraft_config(), 'capacitance_F', None)
+        return float(c) if c is not None else 0.0
+
+    @property
+    def R_sc(self) -> Optional[float]:
+        """Bias resistance of the spacecraft [Ohm] (floating spacecraft only; None = no leakage)."""
+        r = getattr(self._spacecraft_config(), 'resistance_Ohm', None)
+        return float(r) if r is not None else None
+
+    @property
+    def V_sc_bias(self) -> float:
+        """Spacecraft bias potential [V]: the configured (or SPIS) spacecraft potential, else Vf."""
+        v = getattr(self, 'spacecraft_voltage_V', None)
+        return float(v) if v is not None else float(self.Vf)
 
     @property
     def collection_eff(self) -> List[float]:

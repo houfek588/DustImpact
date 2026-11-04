@@ -74,6 +74,8 @@ Používá se pro načtení výsledků simulace ze softwaru SPIS ve formátu VTK
 | `weighting_file` | `string` | `"inputs/spis_Vw_body.vtk"` | - | Cesta k VTK souboru s Ramo-Shockleyho váhovým potenciálem tělesa sondy ($V_w = 1.0$ na povrchu sondy). |
 | `surface_mesh_file` | `string` | `""` | - | Volitelná cesta k explicitní povrchové síti sondy (např. z Gmsh, STL nebo VTK). Pokud je prázdné, těleso se voxelizuje přímo z váhového pole. |
 | `voltage_V` | `float` | `null` | $\text{V}$ | Potenciál tělesa sondy $V_{\text{sc}}$. Je-li zadán `background_potential_file`, hodnota se ignoruje a potenciál se převezme z povrchu tělesa v pozadí SPIS. Bez pozadí a při `null` se použije 0D rovnovážný potenciál. |
+| `capacitance_F` | `float` | `null` | $\text{F}$ | Kapacita odečítacího obvodu tělesa vůči zemi $C_{\text{sc}}$ (zesilovač, kabely, parazitní). Použije se jen při `toggles.enable_floating_spacecraft`; k ní se přičte vakuová kapacitní matice vodičů. Při `null` je $0$. |
+| `resistance_Ohm` | `float` | `null` | $\Omega$ | Odpor $R_{\text{sc}}$, přes který se těleso vybíjí k předpětí `voltage_V`. Použije se jen při `toggles.enable_floating_spacecraft`; při `null` těleso nemá svod (izolované). |
 
 #### Prvky pole `"antennas"`:
 Každý prvek reprezentuje jednu měřicí anténu:
@@ -81,7 +83,7 @@ Každý prvek reprezentuje jednu měřicí anténu:
 |---|---|---|---|---|
 | `weighting_file` | `string` | - | - | Cesta k VTK souboru s váhovým potenciálem dané antény ($V_w = 1.0$ na anténě, $0.0$ na ostatních vodičích). |
 | `voltage_V` | `float` | `0.0` | $\text{V}$ | Předpětí (bias) antény. Je-li zadán `background_potential_file`, hodnota se ignoruje a potenciál se převezme z povrchu antény v pozadí SPIS. |
-| `capacitance_F` | `float` | `2e-12` | $\text{F}$ | Vstupní kapacita $C_{\text{ant}}$ anténního předzesilovače a vedení (typicky $1\text{–}10\text{ pF}$). |
+| `capacitance_F` | `float` | `2e-12` | $\text{F}$ | Vstupní kapacita $C_{\text{ant}}$ anténního předzesilovače a vedení (typicky $1\text{–}10\text{ pF}$). Bez plovoucího tělesa je to celková kapacita antény; s `enable_floating_spacecraft` jen kapacita odečítacího obvodu, ke které se přičte vakuová kapacitní matice. |
 | `resistance_Ohm` | `float` | `100000.0` | $\Omega$ | Vstupní svodový odpor $R_{\text{ant}}$ anténního obvodu (typicky $100\text{ k}\Omega\text{ až }10\text{ M}\Omega$). |
 
 ---
@@ -121,7 +123,9 @@ Umožňuje provozovat plnohodnotné 3D simulace bez jakýchkoliv vstupů ze SPIS
 | `center` | `list[3]` | `[0.0, 0.0, 0.0]` | $\text{m}$ | Souřadnice středu tělesa $[x_0, y_0, z_0]$. |
 | `radius` | `float` | `1.0` | $\text{m}$ | Poloměr koule nebo válce (při `type: "sphere"` či `"cylinder"`). |
 | `dimensions` | `list[3]` | `[1.0, 1.0, 1.0]` | $\text{m}$ | Délky stran kvádru $[a, b, c]$ podél os $X, Y, Z$ (při `type: "box"`). |
-| `voltage_V` | `float` | `0.0` | $\text{V}$ | Elektrostatický potenciál tělesa sondy $V_{\text{sc}}$. |
+| `voltage_V` | `float` | `0.0` | $\text{V}$ | Elektrostatický potenciál tělesa sondy $V_{\text{sc}}$ (při plovoucím tělese jeho předpětí a počáteční hodnota). |
+| `capacitance_F` | `float` | `null` | $\text{F}$ | Kapacita odečítacího obvodu tělesa vůči zemi $C_{\text{sc}}$. Použije se jen při `toggles.enable_floating_spacecraft`; k ní se přičte vakuová kapacitní matice vodičů. Při `null` je $0$. |
+| `resistance_Ohm` | `float` | `null` | $\Omega$ | Odpor $R_{\text{sc}}$ k předpětí `voltage_V`. Použije se jen při `toggles.enable_floating_spacecraft`; při `null` těleso nemá svod. |
 
 #### Prvky pole `"antennas"`:
 | Parametr | Typ | Výchozí | Jednotka | Popis |
@@ -130,7 +134,7 @@ Umožňuje provozovat plnohodnotné 3D simulace bez jakýchkoliv vstupů ze SPIS
 | `p_end` | `list[3]` | `[1.0, 0.0, 0.0]` | $\text{m}$ | Koncový bod osy antény $[x_2, y_2, z_2]$ (hrot antény). |
 | `radius` | `float` | `0.015` | $\text{m}$ | Fyzický poloměr válcového vodiče antény (např. $0.02 = 2\text{ cm}$). |
 | `voltage_V` | `float` | `0.0` | $\text{V}$ | Elektrické předpětí (bias) dané antény. Pokud je parametr vynechán, nastaví se automaticky $0.0\text{ V}$. |
-| `capacitance_F` | `float` | `2e-12` | $\text{F}$ | Kapacita RC obvodu antény. |
+| `capacitance_F` | `float` | `2e-12` | $\text{F}$ | Kapacita RC obvodu antény. Bez plovoucího tělesa celková kapacita antény; s `enable_floating_spacecraft` jen kapacita odečítacího obvodu (vakuová kapacitní matice se přičte automaticky). |
 | `resistance_Ohm` | `float` | `100000.0` | $\Omega$ | Odpor RC obvodu antény. |
 
 ---
@@ -145,7 +149,8 @@ Booleovské přepínače, které umožňují izolovat jednotlivé fyzikální me
     "enable_plasma_self_field": true,
     "enable_antenna_particle_collection": true,
     "enable_rc_circuit_response": true,
-    "enable_antenna_bias_voltage": true
+    "enable_antenna_bias_voltage": true,
+    "enable_floating_spacecraft": false
 }
 ```
 
@@ -156,9 +161,10 @@ Booleovské přepínače, které umožňují izolovat jednotlivé fyzikální me
 | `enable_antenna_particle_collection` | `bool` | `true` | Zapnutí absorpce elektronů a iontů povrchem antény a generování sběrového proudu $I_{\text{col}}(t)$. |
 | `enable_rc_circuit_response` | `bool` | `true` | Zapnutí časové integrace RC obvodu antény ($\frac{dV}{dt} = \frac{I_{\text{tot}}}{C} - \frac{V}{RC}$). Při `false` se proud pouze zaznamenává, ale napětí se neintegruje. |
 | `enable_antenna_bias_voltage` | `bool` | `true` | Inicializace počátečního předpětí antén z konfigurace v čase $t = 0$. |
-| `circuit_solver` | `string` | `"rk4"` | Numerická metoda integrace RC obvodu: `"rk4"` (Runge-Kutta 4. řádu s lineární interpolací proudu, výchozí) nebo `"euler"` (Forward Euler 1. řádu). |
+| `circuit_solver` | `string` | `"rk4"` | Numerická metoda integrace obvodu: `"rk4"` (Runge-Kutta 4. řádu, výchozí) nebo `"euler"` (Forward Euler 1. řádu). Proud kroku je průměr přes krok (nábojově konzervativní Ramo-Shockley), proto je během kroku konstantní a `voltage_ant[:, k]` je napětí na konci kroku $k$; bez svodových odporů se náboj zachovává přesně. |
 | `particle_boundary_mode` | `string` | `"open"` | Okrajová podmínka pro makročástice na vnějších hranicích simulačního boxu $[-L, L]$: `"open"` (částice po opuštění domény trvale zaniknou) nebo `"periodic"` (částice cyklicky vstupují z protilehlé stěny boxu při zachování rychlosti, ideální pro rovnovážné ambientní plazma). |
 | `particle_spacecraft_mode` | `string` | `"absorb"` | Režim interakce makročástic s povrchem tělesa sondy: `"absorb"` (částice jsou při nárazu na těleso trvale pohlceny, výchozí) nebo `"reflect"` (elastický zrcadlový odraz s obrácením normálové rychlosti a korekcí polohy vně tělesa, ideální pro rovnovážnou Debyeovu sféru). |
+| `enable_floating_spacecraft` | `bool` | `false` | Plovoucí potenciál tělesa sondy. Při `true` je těleso další elektrodou obvodu: nabíjí se indukovaným proudem (Ramo-Shockley s váhovým potenciálem tělesa) a sebraným proudem pohlcených částic a s anténami je svázáno vakuovou kapacitní maticí vodičů $C_{\text{vac}}$ spočtenou z váhových potenciálů na mřížce. Napětí elektrod splňují $(C_{\text{vac}} + \mathrm{diag}(C_{\text{ant}}, C_{\text{sc}}))\,\dot V = I - (V - V_{\text{bias}})/R$. Výstup obsahuje `voltage_sc` a `current_sc`; monopólový signál je `voltage_ant - voltage_sc`. Při `false` je těleso na pevném potenciálu a každá anténa je samostatný RC obvod s celkovou kapacitou `capacitance_F`. |
 
 ---
 

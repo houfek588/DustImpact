@@ -313,13 +313,18 @@ class ParticleEnsemble:
           - collected by antenna a:        collected += q * [1 - Vw_a(r^n)] / dt (residual charge only)
           - collected by another antenna,
             or absorbed by the spacecraft: induced  += q * [0 - Vw_a(r^n)] / dt
+        If Vw_list holds one more grid than there are antennas, that grid is the spacecraft weighting
+        potential (floating spacecraft): particles absorbed by the spacecraft are then collected by
+        this extra electrode (index num_antennas) and end at Vw_sc = 1.
         The Ewx/Ewy/Ewz lists are kept in the signature for API compatibility only.
 
         Returns:
-            (col_currs, ind_currs): collected and induced currents per antenna [A].
+            (col_currs, ind_currs): collected and induced currents per electrode [A].
         """
-        col_currs = np.zeros(self.num_antennas)
-        ind_currs = np.zeros(self.num_antennas)
+        n_el = len(Vw_list) if Vw_list is not None else self.num_antennas
+        sc_electrode = self.num_antennas if n_el > self.num_antennas else None
+        col_currs = np.zeros(n_el)
+        ind_currs = np.zeros(n_el)
         if not np.any(active):
             return col_currs, ind_currs
         if self.num_antennas > 0 and (Vw_list is None or len(Vw_list) < self.num_antennas):
@@ -328,10 +333,10 @@ class ParticleEnsemble:
         x_act, y_act, z_act = x[active].copy(), y[active].copy(), z[active].copy()
         ax, ay, az = field_solver.get_accel(x_act, y_act, z_act, mass, phys_charge)
 
-        # Weighting potentials at the pre-push positions r^n, one array per antenna
+        # Weighting potentials at the pre-push positions r^n, one array per electrode
         vw_old = [
             field_solver.interp_field(x_act, y_act, z_act, Vw_list[a_idx])
-            for a_idx in range(self.num_antennas)
+            for a_idx in range(n_el)
         ]
 
         # Symplectic 3D Leapfrog pusher
@@ -374,11 +379,14 @@ class ParticleEnsemble:
                     x, y, z, vx, vy, vz, destroyed_by_sc,
                     x_act[hit_sc], y_act[hit_sc], z_act[hit_sc]
                 )
-        else:
-            new_active[destroyed_by_sc] = False
 
-        # Index of the antenna that collected each particle in this step (-1 = not collected)
+        # Index of the electrode that collected each particle in this step (-1 = not collected)
         landed_on = np.full(len(global_active_indices), -1, dtype=np.int64)
+        if sc_mode != "reflect":
+            new_active[destroyed_by_sc] = False
+            if sc_electrode is not None:
+                landed_on[hit_sc] = sc_electrode
+
         for a_idx in range(self.num_antennas):
             ant_geom = (
                 self.antenna_geometries[a_idx]
@@ -418,16 +426,16 @@ class ParticleEnsemble:
         # Local arrays below are aligned with global_active_indices (particles active at r^n).
         still_active = new_active[global_active_indices]
         idx_still = global_active_indices[still_active]
-        for a_idx in range(self.num_antennas):
+        for a_idx in range(n_el):
             vw_new = np.zeros_like(vw_old[a_idx])
             if len(idx_still) > 0:
                 vw_new[still_active] = field_solver.interp_field(
                     x[idx_still], y[idx_still], z[idx_still], Vw_list[a_idx]
                 )
-            # Particles collected by this antenna end at Vw_a = 1; the residual charge is reported as collected
+            # Particles collected by this electrode end at Vw_a = 1; the residual charge is reported as collected
             landed_here = landed_on == a_idx
             vw_new[landed_here] = 1.0
-            # Particles absorbed by the spacecraft or another antenna end at Vw_a = 0 (vw_new already 0)
+            # Particles absorbed by another conductor end at Vw_a = 0 (vw_new already 0)
             free_or_lost = ~landed_here
             ind_currs[a_idx] = calc_induced_current_from_potential(
                 macro_charge, vw_old[a_idx][free_or_lost], vw_new[free_or_lost], self.p.dt

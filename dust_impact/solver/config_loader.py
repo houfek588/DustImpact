@@ -86,6 +86,8 @@ def _build_analytical_geometry(ana_schema: AnalyticalGeometrySchema) -> Tuple[Ge
             p_start=list(p.p_start),
             p_end=list(p.p_end),
             voltage_V=float(p.voltage_V) if p.voltage_V is not None else None,
+            capacitance_F=float(p.capacitance_F) if p.capacitance_F is not None else None,
+            resistance_Ohm=float(p.resistance_Ohm) if p.resistance_Ohm is not None else None,
             parts=subparts
         )
 
@@ -125,7 +127,13 @@ def _build_spis_geometry(spis_schema: SpisGeometrySchema, base_dir: str) -> Tupl
     sc_obj = SpisSpacecraftConfig(
         weighting_file=sc_f,
         surface_mesh_file=mesh_f,
-        voltage_V=float(v_sc) if v_sc is not None else None
+        voltage_V=float(v_sc) if v_sc is not None else None,
+        capacitance_F=(
+            float(spis_schema.spacecraft.capacitance_F) if spis_schema.spacecraft.capacitance_F is not None else None
+        ),
+        resistance_Ohm=(
+            float(spis_schema.spacecraft.resistance_Ohm) if spis_schema.spacecraft.resistance_Ohm is not None else None
+        ),
     )
 
     ant_list = []

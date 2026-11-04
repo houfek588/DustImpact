@@ -5,7 +5,9 @@ I_ind = - sum q_macro * (v . E_w)
 """
 
 import numpy as np
-from typing import Union
+from typing import List, Tuple, Union
+
+from dust_impact.physics.constants import eps_0
 
 
 def calc_induced_current(q_macro: float, vx: np.ndarray, vy: np.ndarray, Ewx: np.ndarray, Ewy: np.ndarray,
@@ -64,3 +66,49 @@ def calc_induced_current_from_potential(q_macro: float, Vw_old: np.ndarray, Vw_n
         Induced current averaged over the time step [A].
     """
     return float(q_macro * np.sum(Vw_new - Vw_old) / dt)
+
+
+def vacuum_capacitance_matrix(Vw_list: List[np.ndarray], conductor_masks: List[np.ndarray],
+                              spacing: Tuple[float, float, float]) -> np.ndarray:
+    """
+    Vacuum (Maxwell) capacitance matrix of the conductors on the PIC grid, consistent with Ramo-Shockley.
+
+    Vw_list[j] is the weighting potential of conductor j (1 on conductor j, 0 on the other conductors
+    and on the grounded outer boundary). By the discrete Gauss law of the 7-point Poisson stencil used
+    for the self-field, the charge on conductor i when conductor j is at 1 V and all others at 0 V is
+
+        C_ij = eps_0 * dV * sum_{n in conductor i} (-Lap Vw_j)(n).
+
+    The matrix is symmetrised, which is exact for discrete-harmonic weighting potentials (analytical
+    geometry) and removes the small asymmetry of sampled SPIS fields. Together with the induced charge
+    -q Vw_i(r) of every free macro-particle, Q_i = sum_j C_ij V_j - sum_p q_p Vw_i(r_p) is the total
+    charge on conductor i, which closes the circuit equations of floating conductors.
+
+    Parameters
+    ----------
+    Vw_list : List[np.ndarray]
+        Weighting potentials (Nx, Ny, Nz) of the conductors, in the electrode order of the circuit.
+    conductor_masks : List[np.ndarray]
+        Boolean node masks of the same conductors (disjoint).
+    spacing : Tuple[float, float, float]
+        Grid spacings (dx, dy, dz) [m].
+
+    Returns
+    -------
+    np.ndarray
+        Symmetric capacitance matrix of shape (n, n) [F].
+    """
+    from dust_impact.numerics.poisson import assemble_negative_laplacian_3d
+
+    n = len(Vw_list)
+    if n == 0:
+        return np.zeros((0, 0))
+    shape = Vw_list[0].shape
+    A = assemble_negative_laplacian_3d(*shape, *spacing)
+    dV = float(np.prod(spacing))
+    C = np.zeros((n, n))
+    for j, Vw in enumerate(Vw_list):
+        charge_density = A @ np.asarray(Vw, dtype=np.float64).ravel()
+        for i, mask in enumerate(conductor_masks):
+            C[i, j] = eps_0 * dV * float(np.sum(charge_density[np.asarray(mask, dtype=bool).ravel()]))
+    return 0.5 * (C + C.T)

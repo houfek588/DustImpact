@@ -163,7 +163,7 @@ class TestNumerics(unittest.TestCase):
         self.assertAlmostEqual(v_sim, v_exact, places=8)
 
     def test_rk4_pure_capacitive_charging(self):
-        """With RC circuit response disabled, V(t) should equal Q(t) / C (Simpson rule)."""
+        """With RC circuit response disabled, V(t) should equal the delivered charge Q(t) / C."""
         from dust_impact.solver.collector import AntennaCircuitCollector
         from dust_impact.solver.params import SimulationParams3D, SimulationToggles3D
 
@@ -200,7 +200,8 @@ class TestNumerics(unittest.TestCase):
             )
             collector.update_circuit(s)
 
-        t_final = (steps - 1) * dt
+        # voltage_ant[:, k] is the voltage at the end of step k, so all `steps` step currents are integrated
+        t_final = steps * dt
         v_expected = (I0 * t_final) / C
         v_sim = collector.voltage_ant[0, steps - 1]
         self.assertAlmostEqual(v_sim, v_expected, places=12)
