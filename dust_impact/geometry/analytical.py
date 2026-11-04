@@ -10,6 +10,7 @@ import scipy.sparse as sp
 import scipy.sparse.linalg as spla
 from dust_impact.geometry.voxelizer import voxelize_sphere, voxelize_box, voxelize_cylinder
 from dust_impact.numerics.poisson import build_pyamg_solver, HAS_PYAMG
+from dust_impact.numerics.gradient import ConductorGradient3D
 
 
 class AnalyticalConductor:
@@ -420,21 +421,16 @@ def build_analytical_simulation_geometry(params: Any, analytical_config: Any):
     params.antenna_bias_voltage_V = effective_biases
     params.V_bias = effective_biases
 
-    # 6. Compute electric fields (-grad V)
+    # 6. Compute electric fields (-grad V) with one-sided differences on conductor surfaces
+    grad = ConductorGradient3D(all_conductors_mask, (params.dx, params.dy, params.dz))
     Ewx_list, Ewy_list, Ewz_list = [], [], []
     for i in range(num_antennas):
-        ewx, ewy, ewz = np.gradient(-Vw_grids[i], params.dx, params.dy, params.dz)
-        ewx[all_conductors_mask] = 0.0
-        ewy[all_conductors_mask] = 0.0
-        ewz[all_conductors_mask] = 0.0
+        ewx, ewy, ewz = grad.electric_field(Vw_grids[i])
         Ewx_list.append(ewx)
         Ewy_list.append(ewy)
         Ewz_list.append(ewz)
 
-    Ex_bg, Ey_bg, Ez_bg = np.gradient(-V_bg, params.dx, params.dy, params.dz)
-    Ex_bg[all_conductors_mask] = 0.0
-    Ey_bg[all_conductors_mask] = 0.0
-    Ez_bg[all_conductors_mask] = 0.0
+    Ex_bg, Ey_bg, Ez_bg = grad.electric_field(V_bg)
 
     # 7. Impact intersection & normal (only for localized dust impact)
     is_homogeneous = getattr(params, 'plasma_injection_mode', 'point_cloud') == 'homogeneous'

@@ -12,6 +12,7 @@ import numpy as np
 from dust_impact.numerics.interpolators import deposit_charge_cic_3d, interp_field_3d
 from dust_impact.numerics.pushers import leapfrog_step_3d, check_cfl_condition
 from dust_impact.numerics.poisson import DirichletLaplaceSolver3D
+from dust_impact.numerics.gradient import ConductorGradient3D
 
 
 class TestNumerics(unittest.TestCase):
@@ -251,6 +252,46 @@ class TestDirichletLaplaceSolver(unittest.TestCase):
         fixed[0, 5, 5] = False
         with self.assertRaises(ValueError):
             DirichletLaplaceSolver3D(fixed, self.h)
+
+
+class TestConductorGradient(unittest.TestCase):
+    """E = -grad(V) next to conductors must reproduce the potential drop felt by particles."""
+
+    def test_one_sided_difference_on_conductor_surface(self):
+        """A linear potential outside a conductor slab gives the exact field on the slab surface nodes,
+        zero field in the slab interior, and the central difference elsewhere."""
+        N, h = 12, 0.1
+        x = np.arange(N) * h
+        V = np.broadcast_to((3.0 - 2.0 * x)[:, None, None], (N, N, N)).copy()
+        slab = np.zeros((N, N, N), dtype=bool)
+        slab[:4] = True
+        V[slab] = V[3, 0, 0]                       # equipotential conductor at the value of its surface node
+        Ex, Ey, Ez = ConductorGradient3D(slab, (h, h, h)).electric_field(V)
+        np.testing.assert_allclose(Ex[3], 2.0, rtol=1e-12)
+        np.testing.assert_allclose(Ex[:3], 0.0, atol=1e-12)
+        np.testing.assert_allclose(Ex[4:-1], 2.0, rtol=1e-12)
+        np.testing.assert_allclose(Ey, 0.0, atol=1e-12)
+        np.testing.assert_allclose(Ez, 0.0, atol=1e-12)
+
+    def test_field_integral_matches_potential_drop_next_to_sphere(self):
+        """Along a grid axis from just outside a voxelized sphere, the integral of the trilinearly
+        interpolated E equals the drop of the interpolated V. Zeroing E on conductor nodes loses ~8 %
+        of the drop in the first cell (R/h = 5), which biases charge escape from the spacecraft."""
+        N, L, R, V0 = 61, 0.45, 0.075, 5.0
+        g = np.linspace(-L, L, N)
+        h = g[1] - g[0]
+        X, Y, Z = np.meshgrid(g, g, g, indexing="ij")
+        r = np.sqrt(X**2 + Y**2 + Z**2)
+        sphere = r <= R + 1e-12
+        V = np.where(sphere, V0, V0 * R / np.maximum(r, 1e-12))
+        Ex, Ey, Ez = ConductorGradient3D(sphere, (h, h, h)).electric_field(V)
+
+        xs = np.linspace(R + 0.2 * h, 0.3, 4001)
+        zeros = np.zeros_like(xs)
+        E_line = interp_field_3d(xs, zeros, zeros, g, g, g, h, h, h, Ex)
+        V_line = interp_field_3d(xs, zeros, zeros, g, g, g, h, h, h, V)
+        drop = V_line[0] - V_line[-1]
+        self.assertAlmostEqual(np.trapz(E_line, xs) / drop, 1.0, delta=0.01)
 
 
 if __name__ == "__main__":

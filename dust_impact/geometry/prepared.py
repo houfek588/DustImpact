@@ -20,6 +20,7 @@ from dust_impact.geometry.voxelizer import detect_metal_mask_3d
 from dust_impact.geometry.surface import compute_impact_intersection_and_normal
 from dust_impact.geometry.analytical import generate_synthetic_analytical_fields
 from dust_impact.numerics.poisson import DirichletLaplaceSolver3D
+from dust_impact.numerics.gradient import ConductorGradient3D
 from dust_impact.geometry.spis_loader import (
     read_spis_mesh,
     extract_potential_from_mesh,
@@ -321,12 +322,11 @@ def build_simulation_geometry(params: Any) -> PreparedGeometry3D:
     Vw_body = laplace.enforce(Vw_body, np.where(conductor_nodes, spacecraft_mask_3d, Vw_body))
     Vw_grids = [laplace.enforce(Vw, mask.astype(np.float64)) for Vw, mask in zip(Vw_grids, antenna_masks_3d)]
 
+    # Fields use one-sided differences on conductor surface nodes (see ConductorGradient3D)
+    grad = ConductorGradient3D(conductor_nodes, (params.dx, params.dy, params.dz))
     Ewx_list, Ewy_list, Ewz_list = [], [], []
-    for Vw, mask in zip(Vw_grids, antenna_masks_3d):
-        Ewx, Ewy, Ewz = np.gradient(-Vw, params.dx, params.dy, params.dz)
-        Ewx[mask] = 0.0
-        Ewy[mask] = 0.0
-        Ewz[mask] = 0.0
+    for Vw in Vw_grids:
+        Ewx, Ewy, Ewz = grad.electric_field(Vw)
         Ewx_list.append(Ewx)
         Ewy_list.append(Ewy)
         Ewz_list.append(Ewz)
@@ -368,10 +368,7 @@ def build_simulation_geometry(params: Any) -> PreparedGeometry3D:
 
     # 7. Background electric field
     if np.any(V_bg_grid != 0.0):
-        Ex_bg, Ey_bg, Ez_bg = np.gradient(-V_bg_grid, params.dx, params.dy, params.dz)
-        Ex_bg[conductor_nodes] = 0.0
-        Ey_bg[conductor_nodes] = 0.0
-        Ez_bg[conductor_nodes] = 0.0
+        Ex_bg, Ey_bg, Ez_bg = grad.electric_field(V_bg_grid)
     else:
         Ex_bg = np.zeros((Nx, Ny, Nz))
         Ey_bg = np.zeros((Nx, Ny, Nz))

@@ -5,9 +5,11 @@ Numerics subpackage for DustImpact: Integrators, Grid-to-Particle Interpolators,
 from dust_impact.numerics.pushers import leapfrog_step_3d, check_cfl_condition
 from dust_impact.numerics.interpolators import interp_field_3d, deposit_charge_cic_3d
 from dust_impact.numerics.poisson import solve_poisson_lu, build_pyamg_solver
+from dust_impact.numerics.gradient import ConductorGradient3D
 
 __all__ = [
     "leapfrog_step_3d", "check_cfl_condition",
     "interp_field_3d", "deposit_charge_cic_3d",
-    "solve_poisson_lu", "build_pyamg_solver"
+    "solve_poisson_lu", "build_pyamg_solver",
+    "ConductorGradient3D"
 ]

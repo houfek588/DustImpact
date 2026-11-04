@@ -13,6 +13,7 @@ import scipy.sparse.linalg as spla
 from dust_impact.physics.constants import eps_0
 from dust_impact.numerics.interpolators import interp_field_3d, deposit_charge_cic_3d
 from dust_impact.numerics.poisson import build_pyamg_solver, assemble_negative_laplacian_3d, HAS_PYAMG
+from dust_impact.numerics.gradient import ConductorGradient3D
 from dust_impact.solver.config_loader import SimulationParams3D, SimulationToggles3D
 
 
@@ -59,6 +60,9 @@ class FieldSolver3D:
         self.Ex_self = np.zeros((Nx, Ny, Nz), dtype=np.float64)
         self.Ey_self = np.zeros((Nx, Ny, Nz), dtype=np.float64)
         self.Ez_self = np.zeros((Nx, Ny, Nz), dtype=np.float64)
+
+        # Self-field E uses one-sided differences on conductor surface nodes (V_self = 0 there)
+        self.gradient = ConductorGradient3D(combined_mask, (self.p.dx, self.p.dy, self.p.dz))
 
         self.amg_solver = None
         self.lu_solver = None
@@ -233,7 +237,7 @@ class FieldSolver3D:
             self.last_poisson_residual, self.last_poisson_iterations = 0.0, 0
 
         self.V_self_grid = V_self_1d.reshape((Nx, Ny, Nz))
-        self.Ex_self, self.Ey_self, self.Ez_self = np.gradient(-self.V_self_grid, self.p.dx, self.p.dy, self.p.dz)
+        self.Ex_self, self.Ey_self, self.Ez_self = self.gradient.electric_field(self.V_self_grid)
 
     def interp_field(self, x: np.ndarray, y: np.ndarray, z: np.ndarray, field_3d: np.ndarray) -> np.ndarray:
         """Interpolates 3D Cartesian field onto arbitrary particle coordinates."""
