@@ -82,6 +82,12 @@
                     },
                     "title": "Antennas",
                     "type": "array"
+                },
+                "thin_wire_model": {
+                    "default": false,
+                    "description": "Sub-grid thin-wire model for antennas thinner than their grid representation: the wire nodes carry the line charge of a wire of the true radius (logarithmic near field, effective radius of the voxel wire calibrated on the grid), which corrects weighting potentials, capacitances and the self-field near the wire. When false the voxelized wire is held at the antenna potential and acts as a wire of radius ~ grid spacing",
+                    "title": "Thin Wire Model",
+                    "type": "boolean"
                 }
             },
             "title": "AnalyticalGeometrySchema",
@@ -596,6 +602,26 @@
                     "title": "Show Currents",
                     "type": "boolean"
                 },
+                "show_monopole_dipole": {
+                    "default": true,
+                    "description": "Plot monopole (V_antenna - V_spacecraft) and dipole (V_i - V_j) signals",
+                    "title": "Show Monopole Dipole",
+                    "type": "boolean"
+                },
+                "dipole_pairs": {
+                    "description": "Antenna pairs [i, j] (1-based) plotted as dipoles V_i - V_j; empty = consecutive pairs [1, 2], [3, 4], ...",
+                    "items": {
+                        "items": {
+                            "minimum": 1,
+                            "type": "integer"
+                        },
+                        "maxItems": 2,
+                        "minItems": 2,
+                        "type": "array"
+                    },
+                    "title": "Dipole Pairs",
+                    "type": "array"
+                },
                 "show_fields_slice": {
                     "default": true,
                     "description": "Generate potential slice animation",
@@ -671,6 +697,11 @@
                 "file_currents": {
                     "default": "outputs/out_3d_proudy_napeti.png",
                     "title": "File Currents",
+                    "type": "string"
+                },
+                "file_monopole_dipole": {
+                    "default": "outputs/out_3d_monopol_dipol.png",
+                    "title": "File Monopole Dipole",
                     "type": "string"
                 },
                 "file_fields_anim": {

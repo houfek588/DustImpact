@@ -15,7 +15,7 @@ if sys.platform != "win32" and not os.environ.get("DISPLAY"):
     except Exception:
         pass
 
-from dust_impact.visualization.signals import plot_currents_and_voltage
+from dust_impact.visualization.signals import plot_currents_and_voltage, plot_monopole_dipole
 from dust_impact.visualization.fields import plot_static_vtk_fields, animate_fields_slice, plot_potential_line_x
 from dust_impact.visualization.particles import animate_particles_2d_slice, animate_particles_3d
 from dust_impact.visualization.distributions import animate_velocity_distribution
@@ -30,6 +30,7 @@ __all__ = [
     "VisualizationPipeline",
     "plot_simulation_results_3d",
     "plot_currents_and_voltage",
+    "plot_monopole_dipole",
     "plot_static_vtk_fields",
     "animate_fields_slice",
     "plot_potential_line_x",

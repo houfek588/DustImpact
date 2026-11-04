@@ -228,6 +228,14 @@ class AnalyticalGeometrySchema(StrictBaseModel):
         default_factory=list,
         description="List of analytical wire antennas"
     )
+    thin_wire_model: bool = Field(
+        False,
+        description="Sub-grid thin-wire model for antennas thinner than their grid representation: the wire "
+                    "nodes carry the line charge of a wire of the true radius (logarithmic near field, effective "
+                    "radius of the voxel wire calibrated on the grid), which corrects weighting potentials, "
+                    "capacitances and the self-field near the wire. When false the voxelized wire is held at the "
+                    "antenna potential and acts as a wire of radius ~ grid spacing"
+    )
 
 
 class GeometrySchema(StrictBaseModel):
@@ -521,6 +529,15 @@ class PlottingSchema(StrictBaseModel):
     export_csv_time_series: bool = Field(False, description="Export antenna currents/voltages to CSV")
 
     show_currents: bool = Field(True, description="Plot antenna currents and voltages")
+    show_monopole_dipole: bool = Field(
+        True,
+        description="Plot monopole (V_antenna - V_spacecraft) and dipole (V_i - V_j) signals"
+    )
+    dipole_pairs: List[Annotated[List[Annotated[int, Field(ge=1)]], Field(min_length=2, max_length=2)]] = Field(
+        default_factory=list,
+        description="Antenna pairs [i, j] (1-based) plotted as dipoles V_i - V_j; empty = consecutive pairs "
+                    "[1, 2], [3, 4], ..."
+    )
     show_fields_slice: bool = Field(True, description="Generate potential slice animation")
     show_potential_line_x: bool = Field(True, description="Plot electric potential along X-axis at t=0, T/2, 3T/4, T")
     show_particles_3d: bool = Field(True, description="Generate 3D particle animation")
@@ -538,6 +555,7 @@ class PlottingSchema(StrictBaseModel):
     vtk_output_dir: str = "outputs/paraview_vtk"
 
     file_currents: str = "outputs/out_3d_proudy_napeti.png"
+    file_monopole_dipole: str = "outputs/out_3d_monopol_dipol.png"
     file_fields_anim: str = "outputs/out_3d_animace_pole_potencial.gif"
     file_potential_line_x: str = "outputs/out_3d_potencial_osa_x.png"
     file_particles_anim: str = "outputs/out_3d_animace_pozice_castic.gif"

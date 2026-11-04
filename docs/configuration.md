@@ -127,6 +127,11 @@ Umožňuje provozovat plnohodnotné 3D simulace bez jakýchkoliv vstupů ze SPIS
 | `capacitance_F` | `float` | `null` | $\text{F}$ | Kapacita odečítacího obvodu tělesa vůči zemi $C_{\text{sc}}$. Použije se jen při `toggles.enable_floating_spacecraft`; k ní se přičte vakuová kapacitní matice vodičů. Při `null` je $0$. |
 | `resistance_Ohm` | `float` | `null` | $\Omega$ | Odpor $R_{\text{sc}}$ k předpětí `voltage_V`. Použije se jen při `toggles.enable_floating_spacecraft`; při `null` těleso nemá svod. |
 
+#### Parametr `"thin_wire_model"`:
+| Parametr | Typ | Výchozí | Jednotka | Popis |
+|---|---|---|---|---|
+| `thin_wire_model` | `bool` | `false` | - | Model tenkého drátu pro antény tenčí, než je mřížka umí zachytit (typicky $a \ll dx$). Uzly drátu nesou náboj drátu se skutečným poloměrem $a$: blízké pole je logaritmické, $V_{\text{drát}} - V_{\text{uzel}} = \frac{\lambda}{2\pi\varepsilon_0}\ln(r_{\text{eff}}/a)$, kde efektivní poloměr voxelového drátu $r_{\text{eff}}$ se kalibruje numericky na dlouhém pomocném drátu se stejnou polohou vůči mřížce. V Poissonově/Laplaceově úloze to znamená diagonální vazbu $(-\nabla^2 V)_n + \beta_n V_n = \beta_n V_{\text{drát}}$, $\beta_n = 2\pi w_n / (\Delta V \ln(r_{\text{eff}}/a))$. Opravuje váhové potenciály (indukovaný náboj), kapacity i vlastní pole u drátu; reciprocita Ramo-Shockley zůstává přesná. Při `false` se voxelový drát drží na potenciálu antény a chová se jako drát o poloměru řádu $dx$ (kapacita nadsazená o 30–100 %). Sběr částic vždy používá skutečný poloměr `radius`. |
+
 #### Prvky pole `"antennas"`:
 | Parametr | Typ | Výchozí | Jednotka | Popis |
 |---|---|---|---|---|
@@ -276,7 +281,9 @@ Definuje výpočetní síť, časovou diskretizaci a počet makročástic pro Pa
 | `show_interactive_gui_windows` | `bool` | `false` | Zda po dokončení otevřít interaktivní grafická okna Matplotlib (doporučeno `false` při běhu na serveru bez GUI). |
 | `save_plots_to_disk` | `bool` | `true` | Zda uložit vygenerované statické grafy a animace ve formátu PNG/GIF do výstupní složky. |
 | `export_csv_time_series` | `bool` | `false` | Zda uložit časové řady proudů a napětí všech antén do přehledného CSV souboru. |
-| `show_currents` | `bool` | `true` | Generování grafu časového průběhu indukovaných a sběrových proudů a napětí na anténách. |
+| `show_currents` | `bool` | `true` | Generování grafu časového průběhu indukovaných a sběrových proudů a napětí na anténách. Zobrazuje přímo počítané veličiny: proudy do elektrod a napětí antén vůči uzemněné hranici, u plovoucí sondy i proud `current_sc` a napětí `voltage_sc` (černě). Soubor `file_currents`. |
+| `show_monopole_dipole` | `bool` | `true` | Graf odvozených signálů měřicích přístrojů: monopóly $V_{\text{ANT},k} - V_{\text{SC}}$ všech antén (u sondy na pevném potenciálu vůči jejímu předpětí) a dipóly $V_{\text{ANT},i} - V_{\text{ANT},j}$. Soubor `file_monopole_dipole` (výchozí `outputs/out_3d_monopol_dipol.png`). |
+| `dipole_pairs` | `list[[int, int]]` | `[]` | Dvojice antén (číslované od 1) vykreslené jako dipóly, např. `[[3, 4]]` pro dipól z článku Shen et al. (2023). Prázdný seznam = po sobě jdoucí dvojice `[1, 2]`, `[3, 4]`, … |
 | `show_fields_slice` | `bool` | `true` | Generování GIF animace prostorového řezu potenciálem plazmatu. |
 | `show_potential_line_x` | `bool` | `true` | Generování 4-panelového grafu prostorového průběhu elektrického potenciálu podél osy X ($y=0, z=0$) v časech $t=0, T/2, 3T/4, T$. |
 | `show_particles_3d` | `bool` | `true` | Generování 3D prostorové animace kinetiky makročástic. |

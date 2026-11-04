@@ -29,6 +29,8 @@ class PlottingConfig3D:
     export_csv_time_series: bool = False
 
     show_currents: bool = True
+    show_monopole_dipole: bool = True
+    dipole_pairs: List[List[int]] = field(default_factory=list)
     show_fields_slice: bool = True
     show_potential_line_x: bool = True
     show_particles_3d: bool = True
@@ -46,6 +48,7 @@ class PlottingConfig3D:
     vtk_output_dir: str = "outputs/paraview_vtk"
 
     file_currents: str = "outputs/out_3d_proudy_napeti.png"
+    file_monopole_dipole: str = "outputs/out_3d_monopol_dipol.png"
     file_fields_anim: str = "outputs/out_3d_animace_pole_potencial.gif"
     file_potential_line_x: str = "outputs/out_3d_potencial_osa_x.png"
     file_particles_anim: str = "outputs/out_3d_animace_pozice_castic.gif"

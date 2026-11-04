@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 
 from dust_impact.common.io import export_time_series_csv
 from dust_impact.visualization.styles import cleanup_animation
-from dust_impact.visualization.signals import plot_currents_and_voltage
+from dust_impact.visualization.signals import plot_currents_and_voltage, plot_monopole_dipole
 from dust_impact.visualization.fields import plot_static_vtk_fields, animate_fields_slice, plot_potential_line_x
 from dust_impact.visualization.particles import animate_particles_2d_slice, animate_particles_3d
 from dust_impact.visualization.distributions import animate_velocity_distribution
@@ -64,6 +64,9 @@ class VisualizationPipeline:
         fig_curr = plot_currents_and_voltage(results, params, plot_cfg)
         if fig_curr:
             self.figures.append(fig_curr)
+        fig_mono = plot_monopole_dipole(results, params, plot_cfg)
+        if fig_mono:
+            self.figures.append(fig_mono)
 
         # 3. 2D YZ Slice animation of potential fields
         hist = results.get('history', {})

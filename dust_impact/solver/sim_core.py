@@ -46,7 +46,7 @@ class DustImpactSimulation3D:
     ):
         antenna_geometries = None
         spacecraft_geometry = None
-        Vw_sc, Ew_sc, capacitance_matrix = None, None, None
+        Vw_sc, Ew_sc, capacitance_matrix, wire_coupling = None, None, None, None
         if hasattr(V_bg, 'antenna_masks_3d') and hasattr(V_bg, 'spacecraft_mask_3d'):
             geom = V_bg
             V_bg = geom.V_bg
@@ -61,6 +61,7 @@ class DustImpactSimulation3D:
             if Vw_sc is not None:
                 Ew_sc = (geom.Ewx_sc, geom.Ewy_sc, geom.Ewz_sc)
             capacitance_matrix = getattr(geom, 'capacitance_matrix', None)
+            wire_coupling = getattr(geom, 'wire_coupling', None)
 
         if hasattr(params, 'geometry'):
             geom_cfg = params.geometry
@@ -103,7 +104,7 @@ class DustImpactSimulation3D:
         self.field_solver = FieldSolver3D(
             params, toggles, V_bg, Ex_bg, Ey_bg, Ez_bg,
             Ewx_list, Ewy_list, Ewz_list, self.combined_mask, self.num_antennas,
-            Vw_sc=Vw_sc, Ew_sc=Ew_sc,
+            Vw_sc=Vw_sc, Ew_sc=Ew_sc, wire_coupling=wire_coupling,
         )
         self.collector = AntennaCircuitCollector(
             params, toggles, self.num_antennas,

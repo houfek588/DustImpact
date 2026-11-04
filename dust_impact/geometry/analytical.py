@@ -10,6 +10,9 @@ from dust_impact.geometry.voxelizer import voxelize_sphere, voxelize_box, voxeli
 from dust_impact.numerics.poisson import DirichletLaplaceSolver3D
 from dust_impact.numerics.gradient import ConductorGradient3D
 from dust_impact.physics.ramo_shockley import vacuum_capacitance_matrix
+from dust_impact.geometry.thin_wire import (
+    thin_wire_voxel_radius, calibrate_effective_radius, thin_wire_coupling, wire_length_outside
+)
 
 
 class AnalyticalConductor:
@@ -254,6 +257,7 @@ def solve_laplace_dirichlet_3d(
     dx: float, dy: float, dz: float,
     dirichlet_mask: np.ndarray,
     rhs_values: List[np.ndarray],
+    coupling: Optional[np.ndarray] = None,
 ) -> List[np.ndarray]:
     """
     Solves the discrete 3D Laplace equation for several Dirichlet problems sharing one node pattern.
@@ -274,7 +278,11 @@ def solve_laplace_dirichlet_3d(
     dirichlet_mask : np.ndarray
         Boolean array (Nx, Ny, Nz), True on conductor nodes.
     rhs_values : List[np.ndarray]
-        Conductor potentials for each problem, shape (Nx, Ny, Nz); only values on dirichlet_mask are used.
+        Conductor potentials for each problem, shape (Nx, Ny, Nz); only values on dirichlet_mask and on
+        the thin-wire nodes (coupling > 0) are used.
+    coupling : Optional[np.ndarray]
+        Thin-wire coupling coefficients beta [1/m^2] (dust_impact.geometry.thin_wire); nonzero nodes are
+        thin-wire nodes, free nodes held towards the wire potential given in rhs_values.
 
     Returns
     -------
@@ -287,8 +295,41 @@ def solve_laplace_dirichlet_3d(
     fixed_mask[:, [0, -1], :] = True
     fixed_mask[:, :, [0, -1]] = True
 
-    solver = DirichletLaplaceSolver3D(fixed_mask, (dx, dy, dz))
-    return [solver.solve(np.where(conductors, rhs_grid, 0.0)) for rhs_grid in rhs_values]
+    targets = conductors | (coupling > 0.0) if coupling is not None else conductors
+
+    solver = DirichletLaplaceSolver3D(fixed_mask, (dx, dy, dz), coupling=coupling)
+    return [solver.solve(np.where(targets, rhs_grid, 0.0)) for rhs_grid in rhs_values]
+
+
+def _thin_wire_coupling_for_antennas(
+    params: Any, ant_geoms: List[Any], antenna_masks: List[np.ndarray], sc_part: Any,
+    spacing: Tuple[float, float, float],
+) -> Optional[np.ndarray]:
+    """
+    Thin-wire coupling coefficients of all antennas thinner than their voxel representation.
+
+    Returns the summed beta array, or None if every antenna is resolved by the grid (r_eff <= radius).
+    """
+    grid = (params.x_grid, params.y_grid, params.z_grid)
+
+    def inside_spacecraft(px: np.ndarray, py: np.ndarray, pz: np.ndarray) -> np.ndarray:
+        if sc_part is None:
+            return np.zeros(np.shape(px), dtype=bool)
+        return voxelize_analytical_spacecraft_part(px, py, pz, sc_part)
+
+    coupling = np.zeros(antenna_masks[0].shape)
+    for i, (ant, mask) in enumerate(zip(ant_geoms, antenna_masks)):
+        radius = float(getattr(ant, 'radius', 0.015))
+        r_eff = calibrate_effective_radius(ant.p_start, ant.p_end, thin_wire_voxel_radius(radius, spacing), grid)
+        if r_eff <= radius:
+            print(f"  -> Anténa {i + 1}: drát je rozlišen mřížkou (a = {radius * 1e3:.2f} mm >= "
+                  f"r_eff = {r_eff * 1e3:.2f} mm), model tenkého drátu se nepoužije.")
+            continue
+        length = wire_length_outside(ant.p_start, ant.p_end, inside_spacecraft)
+        coupling += thin_wire_coupling(mask, length, radius, r_eff, spacing)
+        print(f"  -> Anténa {i + 1}: model tenkého drátu (a = {radius * 1e3:.2f} mm, efektivní poloměr "
+              f"uzlů r_eff = {r_eff * 1e3:.2f} mm, {int(mask.sum())} uzlů).")
+    return coupling if np.any(coupling > 0.0) else None
 
 
 def build_analytical_simulation_geometry(params: Any, analytical_config: Any):
@@ -313,22 +354,32 @@ def build_analytical_simulation_geometry(params: Any, analytical_config: Any):
     # 2. Antenna masks, disjoint from the spacecraft and from each other so that every conductor node
     # has a single owner (Vw_a = 1 only on antenna a, the background takes that conductor's potential)
     ant_geoms = getattr(analytical_config, 'antennas', [])
+    spacing = (params.dx, params.dy, params.dz)
+    thin_wire = bool(getattr(analytical_config, 'thin_wire_model', False))
     antenna_masks = []
     occupied = spacecraft_mask.copy()
     for ant in ant_geoms:
         p_start = getattr(ant, 'p_start', [0.0, 0.0, 0.0])
         p_end = getattr(ant, 'p_end', [1.0, 0.0, 0.0])
         radius = getattr(ant, 'radius', 0.015)
-        m = voxelize_cylinder(X, Y, Z, p_start, p_end, radius) & ~occupied
+        vox_radius = thin_wire_voxel_radius(radius, spacing) if thin_wire else radius
+        m = voxelize_cylinder(X, Y, Z, p_start, p_end, vox_radius) & ~occupied
         occupied |= m
         antenna_masks.append(m)
 
     num_antennas = len(antenna_masks)
 
-    # 3. Combined conductor mask for Dirichlet boundary conditions
+    # 3. Combined conductor mask; with the thin-wire model, wires thinner than their voxel
+    # representation become coupling nodes (free nodes) instead of Dirichlet nodes
     all_conductors_mask = spacecraft_mask.copy()
     for m in antenna_masks:
         all_conductors_mask |= m
+    wire_coupling = None
+    dirichlet_conductors = all_conductors_mask
+    if thin_wire and num_antennas > 0:
+        wire_coupling = _thin_wire_coupling_for_antennas(params, ant_geoms, antenna_masks, sc_part, spacing)
+        if wire_coupling is not None:
+            dirichlet_conductors = all_conductors_mask & ~(wire_coupling > 0.0)
 
     # 4. Prepare RHS grids for each antenna weighting field and background field
     rhs_list = []
@@ -367,8 +418,9 @@ def build_analytical_simulation_geometry(params: Any, analytical_config: Any):
     # 5. Solve the vacuum Laplace equation on the grid (conductor values are imposed exactly)
     solved_fields = solve_laplace_dirichlet_3d(
         Nx, Ny, Nz, params.dx, params.dy, params.dz,
-        dirichlet_mask=all_conductors_mask,
+        dirichlet_mask=dirichlet_conductors,
         rhs_values=rhs_list,
+        coupling=wire_coupling,
     )
 
     Vw_grids = solved_fields[:num_antennas]
@@ -382,7 +434,7 @@ def build_analytical_simulation_geometry(params: Any, analytical_config: Any):
     params.V_bias = effective_biases
 
     # 6. Compute electric fields (-grad V) with one-sided differences on conductor surfaces
-    grad = ConductorGradient3D(all_conductors_mask, (params.dx, params.dy, params.dz))
+    grad = ConductorGradient3D(dirichlet_conductors, (params.dx, params.dy, params.dz))
     Ewx_list, Ewy_list, Ewz_list = [], [], []
     for i in range(num_antennas):
         ewx, ewy, ewz = grad.electric_field(Vw_grids[i])
@@ -437,4 +489,5 @@ def build_analytical_simulation_geometry(params: Any, analytical_config: Any):
         spacecraft_geometry=sc_part,
         Vw_sc=Vw_sc, Ewx_sc=Ewx_sc, Ewy_sc=Ewy_sc, Ewz_sc=Ewz_sc,
         capacitance_matrix=capacitance_matrix,
+        wire_coupling=wire_coupling,
     )

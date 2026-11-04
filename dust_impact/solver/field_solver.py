@@ -37,6 +37,7 @@ class FieldSolver3D:
         num_antennas: int,
         Vw_sc: Optional[np.ndarray] = None,
         Ew_sc: Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]] = None,
+        wire_coupling: Optional[np.ndarray] = None,
     ):
         self.p = params
         self.toggles = toggles
@@ -67,8 +68,17 @@ class FieldSolver3D:
         self.Ey_self = np.zeros((Nx, Ny, Nz), dtype=np.float64)
         self.Ez_self = np.zeros((Nx, Ny, Nz), dtype=np.float64)
 
+        # Thin-wire antenna nodes (beta > 0) are free nodes coupled to the grounded wire (V_wire = 0 for the
+        # self-field), the remaining conductor nodes are Dirichlet nodes
+        self.wire_coupling = wire_coupling
+        thin_nodes = (
+            np.asarray(wire_coupling) > 0.0 if wire_coupling is not None
+            else np.zeros_like(np.asarray(combined_mask, dtype=bool))
+        )
+        self.dirichlet_conductors = np.asarray(combined_mask, dtype=bool) & ~thin_nodes
+
         # Self-field E uses one-sided differences on conductor surface nodes (V_self = 0 there)
-        self.gradient = ConductorGradient3D(combined_mask, (self.p.dx, self.p.dy, self.p.dz))
+        self.gradient = ConductorGradient3D(self.dirichlet_conductors, (self.p.dx, self.p.dy, self.p.dz))
 
         self.amg_solver = None
         self.lu_solver = None
@@ -103,10 +113,12 @@ class FieldSolver3D:
         dirichlet[[0, -1], :, :] = True
         dirichlet[:, [0, -1], :] = True
         dirichlet[:, :, [0, -1]] = True
-        dirichlet |= np.asarray(self.combined_mask, dtype=bool)
+        dirichlet |= self.dirichlet_conductors
         self.free_idx = np.flatnonzero(~dirichlet.ravel())
 
         A_free = A_full[self.free_idx][:, self.free_idx].tocsr()
+        if self.wire_coupling is not None:
+            A_free = (A_free + sp.diags(np.asarray(self.wire_coupling, dtype=np.float64).ravel()[self.free_idx])).tocsr()
         self.A_free = A_free
         print(f"  -> Volné uzly: {len(self.free_idx)} (Dirichlet: {N_tot - len(self.free_idx)})")
 

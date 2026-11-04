@@ -61,6 +61,9 @@ class PreparedGeometry3D:
         Field of the spacecraft weighting potential (-grad Vw_sc).
     capacitance_matrix : Optional[np.ndarray]
         Vacuum capacitance matrix [F] of the conductors in circuit order (antennas, then spacecraft).
+    wire_coupling : Optional[np.ndarray]
+        Thin-wire coupling coefficients beta [1/m^2] (dust_impact.geometry.thin_wire); its nonzero nodes
+        are thin-wire antenna nodes, free nodes of the Poisson problem instead of Dirichlet nodes.
     """
     V_bg: np.ndarray
     Vw_grids: List[np.ndarray]
@@ -81,6 +84,7 @@ class PreparedGeometry3D:
     Ewy_sc: Optional[np.ndarray] = None
     Ewz_sc: Optional[np.ndarray] = None
     capacitance_matrix: Optional[np.ndarray] = None
+    wire_coupling: Optional[np.ndarray] = None
 
     @property
     def num_antennas(self) -> int:

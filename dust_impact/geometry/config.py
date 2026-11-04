@@ -106,6 +106,7 @@ class AnalyticalAntennaGeometry:
 class AnalyticalGeometryConfig:
     spacecraft: AnalyticalSpacecraftPart = field(default_factory=AnalyticalSpacecraftPart)
     antennas: List[AnalyticalAntennaGeometry] = field(default_factory=list)
+    thin_wire_model: bool = False
 
 
 @dataclass

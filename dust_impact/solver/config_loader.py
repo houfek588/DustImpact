@@ -106,7 +106,9 @@ def _build_analytical_geometry(ana_schema: AnalyticalGeometrySchema) -> Tuple[Ge
 
     geom_config = GeometryConfig(
         source='analytical',
-        analytical=AnalyticalGeometryConfig(spacecraft=sc_part, antennas=ant_list)
+        analytical=AnalyticalGeometryConfig(
+            spacecraft=sc_part, antennas=ant_list, thin_wire_model=bool(ana_schema.thin_wire_model)
+        )
     )
     vtk_config = VTKFilesConfig(
         spis_background_potential_file="",
@@ -179,6 +181,7 @@ def _resolve_output_paths(plot_config: PlottingConfig3D, base_dir: str, output_d
         'output_npz_filepath',
         'output_csv_filepath',
         'file_currents',
+        'file_monopole_dipole',
         'file_fields_anim',
         'file_potential_line_x',
         'file_particles_anim',

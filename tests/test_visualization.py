@@ -16,6 +16,7 @@ from dust_impact.common.io import export_time_series_csv
 from dust_impact.visualization import (
     VisualizationPipeline,
     plot_currents_and_voltage,
+    plot_monopole_dipole,
     plot_static_vtk_fields,
     animate_fields_slice,
     plot_potential_line_x,
@@ -23,6 +24,7 @@ from dust_impact.visualization import (
     animate_particles_3d,
     animate_velocity_distribution,
 )
+from dust_impact.visualization.signals import compute_monopole_dipole, resolve_dipole_pairs
 from dust_impact.visualization.styles import safe_set_window_title, get_antenna_colors, get_species_colors, cleanup_animation
 
 
@@ -101,6 +103,66 @@ class TestVisualization(unittest.TestCase):
         fig_zero = plot_currents_and_voltage(self.results, self.params, self.plot_cfg)
         self.assertIsNone(fig_zero)
 
+    def _four_antenna_results(self, floating: bool):
+        """Four antennas with constant voltages 1..4 V; a floating spacecraft at 0.5 V if requested."""
+        n_steps = len(self.params.time_array)
+        res = dict(self.results)
+        res['voltage_ant'] = np.array([np.full(n_steps, float(k + 1)) for k in range(4)])
+        res['smooth_total'] = [np.zeros(n_steps)] * 4
+        res['smooth_induced'] = [np.zeros(n_steps)] * 4
+        if floating:
+            res['voltage_sc'] = np.full(n_steps, 0.5)
+            res['current_sc'] = np.zeros(n_steps)
+        self.params.antenna_capacitance_F = [2e-12] * 4
+        self.params.antenna_resistance_Ohm = [100e3] * 4
+        return res
+
+    def test_monopole_dipole_signals(self):
+        """Monopoles are V_k - V_sc (floating history or fixed bias), dipoles V_i - V_j of the chosen pairs."""
+        res = self._four_antenna_results(floating=True)
+        sig = compute_monopole_dipole(res, self.params, [[3, 4]])
+        self.assertTrue(sig['floating_spacecraft'])
+        np.testing.assert_allclose(sig['monopoles'][:, 0], [0.5, 1.5, 2.5, 3.5])
+        self.assertEqual(sig['pairs'], [(2, 3)])
+        np.testing.assert_allclose(sig['dipoles'][0], -1.0)
+        np.testing.assert_allclose(sig['t_us'][0], self.params.dt * 1e6)
+
+        res_fixed = self._four_antenna_results(floating=False)
+        res_fixed['metadata'] = {'spacecraft_bias_voltage_V': 2.0}
+        sig_fixed = compute_monopole_dipole(res_fixed, self.params)
+        self.assertFalse(sig_fixed['floating_spacecraft'])
+        np.testing.assert_allclose(sig_fixed['monopoles'][:, -1], [-1.0, 0.0, 1.0, 2.0])
+        self.assertEqual(sig_fixed['pairs'], [(0, 1), (2, 3)])
+
+    def test_dipole_pair_validation(self):
+        self.assertEqual(resolve_dipole_pairs([], 3), [(0, 1)])
+        self.assertEqual(resolve_dipole_pairs(None, 1), [])
+        with self.assertRaises(ValueError):
+            resolve_dipole_pairs([[1, 5]], 4)
+        with self.assertRaises(ValueError):
+            resolve_dipole_pairs([[2, 2]], 4)
+
+    def test_plot_monopole_dipole(self):
+        res = self._four_antenna_results(floating=True)
+        self.plot_cfg.dipole_pairs = [[3, 4], [1, 2]]
+        fig = plot_monopole_dipole(res, self.params, self.plot_cfg)
+        self.assertEqual(len(fig.axes), 2)
+        self.assertEqual(len(fig.axes[0].get_lines()), 4 + 2)   # 4 monopoles + t_delay and zero lines
+        self.assertEqual(len(fig.axes[1].get_lines()), 2 + 2)
+
+        # One antenna: monopole only; disabled: no figure
+        fig_single = plot_monopole_dipole(self.results, self.params, self.plot_cfg.__class__(
+            show_interactive_gui_windows=False, save_plots_to_disk=False))
+        self.assertEqual(len(fig_single.axes), 1)
+        self.plot_cfg.show_monopole_dipole = False
+        self.assertIsNone(plot_monopole_dipole(res, self.params, self.plot_cfg))
+
+    def test_plot_currents_includes_floating_spacecraft(self):
+        res = self._four_antenna_results(floating=True)
+        fig = plot_currents_and_voltage(res, self.params, self.plot_cfg)
+        labels = [l.get_label() for l in fig.axes[1].get_lines()]
+        self.assertTrue(any(lbl.startswith('Sonda') for lbl in labels))
+
     def test_plot_static_vtk_fields(self):
         V_bg = np.zeros((10, 10, 10))
         Vw_grids = [np.ones((10, 10, 10))]
@@ -149,7 +211,7 @@ class TestVisualization(unittest.TestCase):
     def test_pipeline_run_headless(self):
         pipeline = VisualizationPipeline()
         pipeline.run(self.results, self.params, self.plot_cfg)
-        self.assertEqual(len(pipeline.figures), 6)
+        self.assertEqual(len(pipeline.figures), 7)
         self.assertEqual(len(pipeline.animations), 4)
 
 
