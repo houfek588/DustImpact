@@ -5,13 +5,19 @@ Tests strict type checking, range validation, scalar-to-vector expansion,
 forbidden extra fields, and diagnostic error formatting.
 """
 
+import contextlib
 import copy
+import io
 import json
 import os
 import tempfile
 import unittest
 
+import numpy as np
 from pydantic import ValidationError
+
+from dust_impact.physics.constants import e
+from dust_impact.solver.config_loader import setup_simulation_parameters_3d
 
 from dust_impact.solver.schema import SimulationConfigSchema, format_validation_error
 from dust_impact.solver.config_loader import load_and_validate_config
@@ -220,6 +226,25 @@ class TestConfigValidation(unittest.TestCase):
         schema = SimulationConfigSchema.model_validate(cfg)
         self.assertEqual(schema.physics.impact.electron_temperature_eV, 7.5)
         self.assertEqual(schema.physics.impact.ion_temperature_eV, 7.5)
+
+    def test_impact_ion_temperature_reaches_simulation_parameters(self):
+        """A separate impact ion temperature must survive the schema -> SimulationParams3D conversion
+        and set the ion thermal speed used to sample the impact cloud."""
+        cfg = copy.deepcopy(self.base_config)
+        cfg["physics"]["impact"]["electron_temperature_eV"] = 2.0
+        cfg["physics"]["impact"]["ion_temperature_eV"] = 5.0
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg_path = os.path.join(tmp, "cfg.json")
+            with open(cfg_path, "w", encoding="utf-8") as f:
+                json.dump(cfg, f)
+            with contextlib.redirect_stdout(io.StringIO()):
+                params, _, _ = setup_simulation_parameters_3d(
+                    Vf=0.0, Vf_antenne=0.0, config_file=cfg_path, output_dir=tmp
+                )
+        self.assertEqual(params.impact_electron_temp_eV, 2.0)
+        self.assertEqual(params.impact_ion_temp_eV, 5.0)
+        if params.plasma_injection_mode == "point_cloud":
+            self.assertAlmostEqual(params.v_th_i, np.sqrt(2.0 * e * 5.0 / params.m_i), delta=1e-6 * params.v_th_i)
 
 
 if __name__ == "__main__":

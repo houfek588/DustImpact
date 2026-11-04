@@ -284,7 +284,9 @@ def setup_simulation_parameters_3d(
         total_impact_charge_C=float(phy_s.total_impact_charge_C),
         plasma_injection_mode=phy_s.plasma_injection_mode,
         impact=impact_obj,
-        impact_cloud_temperature_eV=float(phy_s.impact_cloud_temperature_eV) if phy_s.impact_cloud_temperature_eV is not None else float(impact_obj.electron_temperature_eV),
+        # The schema already folds the legacy impact_cloud_temperature_eV alias into impact_obj; passing it
+        # again would make the dataclass overwrite impact.ion_temperature_eV with the electron temperature.
+        impact_cloud_temperature_eV=None,
         spacecraft_voltage_V=sc_volt,
         antenna_capacitance_F=[float(c) for c in phy_s.antenna_capacitance_F] if phy_s.antenna_capacitance_F else None,
         antenna_resistance_Ohm=[float(r) for r in phy_s.antenna_resistance_Ohm] if phy_s.antenna_resistance_Ohm else None,
