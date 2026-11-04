@@ -27,6 +27,7 @@ import numpy as np
 
 from dust_impact.common.io import load_results, HAS_H5PY
 from dust_impact.geometry import build_simulation_geometry
+from dust_impact.geometry.analytical import voxelize_analytical_spacecraft_part
 from dust_impact.geometry.surface import check_wire_collision_3d
 from dust_impact.physics.charging import calculate_equilibrium_potential, ENV_EARTH, MAT_ALUMINIUM
 from dust_impact.solver.config_loader import setup_simulation_parameters_3d
@@ -148,10 +149,17 @@ class _EndToEndRunMixin:
                 self.assertTrue(np.all(np.abs(x[ok]) <= p.L_x))
                 self.assertTrue(np.all(np.abs(y[ok]) <= p.L_y))
                 self.assertTrue(np.all(np.abs(z[ok]) <= p.L_z))
-                ix = np.clip(np.floor((x[ok] - p.x_grid[0]) / p.dx), 0, p.Nx - 1).astype(int)
-                iy = np.clip(np.floor((y[ok] - p.y_grid[0]) / p.dy), 0, p.Ny - 1).astype(int)
-                iz = np.clip(np.floor((z[ok] - p.z_grid[0]) / p.dz), 0, p.Nz - 1).astype(int)
-                self.assertFalse(np.any(self.geom.spacecraft_mask_3d[ix, iy, iz]))
+                self.assertFalse(np.any(self._inside_spacecraft(x[ok], y[ok], z[ok])))
+
+    def _inside_spacecraft(self, x, y, z):
+        """Exact body test for analytical geometry, nearest mask node for SPIS geometry."""
+        p = self.params
+        if p.geometry.source == "analytical":
+            return voxelize_analytical_spacecraft_part(x, y, z, p.geometry.analytical.spacecraft)
+        ix = np.clip(np.rint((x - p.x_grid[0]) / p.dx), 0, p.Nx - 1).astype(int)
+        iy = np.clip(np.rint((y - p.y_grid[0]) / p.dy), 0, p.Ny - 1).astype(int)
+        iz = np.clip(np.rint((z - p.z_grid[0]) / p.dz), 0, p.Nz - 1).astype(int)
+        return self.geom.spacecraft_mask_3d[ix, iy, iz]
 
 
 class TestEndToEndAnalyticalBox(_EndToEndRunMixin, unittest.TestCase):

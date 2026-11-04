@@ -11,8 +11,17 @@ from dust_impact.solver.field_solver import FieldSolver3D
 
 class TestParticleReflection(unittest.TestCase):
     def setUp(self):
-        self.params = SimulationParams3D(
-            num_macroparticles=10,
+        self.params = self._make_params(10)
+        self.sc_mask = np.zeros((16, 16, 16), dtype=bool)
+        # Mark grid nodes inside sphere as True
+        X, Y, Z = np.meshgrid(self.params.x_grid, self.params.y_grid, self.params.z_grid, indexing='ij')
+        self.sc_mask = (X**2 + Y**2 + Z**2) <= 1.0**2
+
+    @staticmethod
+    def _make_params(num_macroparticles: int) -> SimulationParams3D:
+        """16^3 grid (dx = 0.4 m) around an analytical sphere of radius 1 m at 10 V."""
+        return SimulationParams3D(
+            num_macroparticles=num_macroparticles,
             simulation_duration_s=1e-7,
             time_step_s=2e-8,
             grid_nodes_x=16,
@@ -34,10 +43,6 @@ class TestParticleReflection(unittest.TestCase):
                 )
             )
         )
-        self.sc_mask = np.zeros((16, 16, 16), dtype=bool)
-        # Mark grid nodes inside sphere as True
-        X, Y, Z = np.meshgrid(self.params.x_grid, self.params.y_grid, self.params.z_grid, indexing='ij')
-        self.sc_mask = (X**2 + Y**2 + Z**2) <= 1.0**2
 
     def test_specular_reflection_sphere_physics(self):
         toggles = SimulationToggles3D(
@@ -189,6 +194,64 @@ class TestParticleReflection(unittest.TestCase):
         self.assertGreater(r_after, 1.0)
         # Velocity must be reversed outward
         self.assertGreater(ens_refl.vx_e[0], 0.0)
+
+    def _field_free_solver(self, toggles):
+        zeros = np.zeros((16, 16, 16))
+        return FieldSolver3D(self.params, toggles, zeros, zeros, zeros, zeros, [], [], [], self.sc_mask, num_antennas=0)
+
+    def test_particle_leaving_sphere_surface_is_not_recaptured(self):
+        """
+        A particle just outside the analytical sphere moving outwards flies freely. The collision test
+        must use the same surface the reflection puts particles on; a grid-cell test flagged the cells
+        around the surface as spacecraft and pulled such particles back to r = R + eps on every step,
+        piling electrons up at the surface (7x the bulk density in a Debye shielding run).
+        """
+        toggles = SimulationToggles3D(particle_spacecraft_mode="reflect", particle_boundary_mode="periodic")
+        params = self._make_params(2000)
+        ens = ParticleEnsemble(
+            params, self.sc_mask, num_antennas=0, toggles=toggles,
+            spacecraft_geometry=params.geometry.analytical.spacecraft
+        )
+        ens.cloud_injected = True
+        field_solver = self._field_free_solver(toggles)
+
+        # Particles in the shell 1.0 < r < 1.1 m (cells around it partly cover the sphere mask),
+        # moving radially outwards by 2 cm per step
+        rng = np.random.default_rng(3)
+        n = rng.normal(size=(2000, 3))
+        n /= np.linalg.norm(n, axis=1)[:, None]
+        r0 = rng.uniform(1.0 + 1e-3, 1.1, 2000)
+        speed = 1e6
+        ens.x_e[:], ens.y_e[:], ens.z_e[:] = (n * r0[:, None]).T
+        ens.vx_e[:], ens.vy_e[:], ens.vz_e[:] = (n * speed).T
+        ens.active_e[:] = True
+        steps = 20
+        for _ in range(steps):
+            ens.push_species(
+                ens.x_e, ens.y_e, ens.z_e, ens.vx_e, ens.vy_e, ens.vz_e,
+                ens.active_e, ens.was_outside_e, 9.1e-31, -1.6e-19, -1e-15,
+                field_solver, [], [], [], [], enable_collection=False, boundary_mode="periodic",
+            )
+        self.assertTrue(np.all(ens.active_e))
+        r = np.sqrt(ens.x_e**2 + ens.y_e**2 + ens.z_e**2)
+        np.testing.assert_allclose(r, r0 + steps * speed * self.params.dt, rtol=1e-9)
+
+    def test_homogeneous_sampling_fills_space_up_to_sphere_surface(self):
+        """Uniform loading excludes exactly the sphere: the shell R < r < R + dx has the bulk density."""
+        np.random.seed(5)
+        ens = ParticleEnsemble(
+            self.params, self.sc_mask, num_antennas=0, toggles=SimulationToggles3D(),
+            spacecraft_geometry=self.params.geometry.analytical.spacecraft
+        )
+        n_pts = 400000
+        pts = ens._sample_outside_spacecraft(n_pts)
+        r = np.linalg.norm(pts, axis=1)
+        self.assertEqual(int(np.sum(r <= 1.0)), 0)
+        L, dx = self.params.L_x, self.params.dx
+        n_bulk = n_pts / ((2 * L)**3 - 4.0 / 3.0 * np.pi)
+        shell = 4.0 / 3.0 * np.pi * ((1.0 + dx)**3 - 1.0)
+        n_shell = np.sum((r > 1.0) & (r < 1.0 + dx)) / shell
+        self.assertAlmostEqual(n_shell / n_bulk, 1.0, delta=0.03)
 
     def test_specular_reflection_box_physics(self):
         box_geom = AnalyticalSpacecraftPart(

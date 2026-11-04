@@ -64,6 +64,7 @@ def main(
 
     print("=====================================================")
     print(f"   DUSTIMPACT 3D PIC SIMULATOR")
+    print(f"   V2.0.0")
     print(f"   Konfigurační soubor: {config_file}")
     if output_dir:
         print(f"   Výstupní adresář: {os.path.abspath(output_dir)}")

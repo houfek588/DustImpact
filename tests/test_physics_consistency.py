@@ -78,7 +78,10 @@ class TestPhysicsConsistency(unittest.TestCase):
         self.assertAlmostEqual(Ti_meas / Ti_eV, 1.0, delta=0.02)
 
     def test_homogeneous_plasma_avoids_spacecraft(self):
-        """Homogeneous plasma must not be loaded into cells covered by the spacecraft mask."""
+        """
+        Homogeneous plasma must not be loaded into the spacecraft. Without an analytical body the
+        conductor is the set of mask nodes, each representing the cube of half-width dx/2 around it.
+        """
         np.random.seed(5)
         N = 10
         params = _cubic_params(N, 1.0, num_macroparticles=20000, plasma_injection_mode="homogeneous")
@@ -87,7 +90,7 @@ class TestPhysicsConsistency(unittest.TestCase):
         ens = ParticleEnsemble(params, mask, num_antennas=0)
 
         idx = [
-            np.clip(((c - g[0]) / h).astype(int), 0, N - 1)
+            np.clip(np.rint((c - g[0]) / h).astype(int), 0, N - 1)
             for c, g, h in ((ens.x_e, params.x_grid, params.dx),
                             (ens.y_e, params.y_grid, params.dy),
                             (ens.z_e, params.z_grid, params.dz))

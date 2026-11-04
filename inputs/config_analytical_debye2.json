@@ -1,0 +1,55 @@
+{
+    "$schema": "../schema/config.schema.json",
+    "geometry": {
+        "source": "analytical",
+        "analytical": {
+            "spacecraft": {
+                "type": "sphere",
+                "center": [0.0, 0.0, 0.0],
+                "radius": 1.0,
+                "voltage_V": 0.5
+            },
+            "antennas": []
+        }
+    },
+    "toggles": {
+        "enable_spis_background_field": true,
+        "enable_plasma_self_field": true,
+        "enable_antenna_particle_collection": false,
+        "enable_rc_circuit_response": false,
+        "enable_antenna_bias_voltage": false,
+        "particle_boundary_mode": "periodic",
+        "particle_spacecraft_mode": "reflect"
+    },
+    "physics": {
+        "ion_mass_amu": 10000.0,
+        "solar_wind_electron_temp_eV": 2.0,
+        "solar_wind_ion_temp_eV": 2.0,
+        "solar_wind_density_m3": 1e8,
+        "plasma_injection_mode": "homogeneous"
+    },
+    "numeric": {
+        "num_macroparticles": 5400000,
+        "time_step_s": 1e-07,
+        "num_time_steps": 3000,
+        "domain_half_length_m": [7.0, 7.0, 7.0],
+        "grid_nodes": [101, 101, 101],
+        "field_precision": "float64"
+    },
+    "plotting": {
+        "run_physical_simulation": true,
+        "show_potential_line_x": true,
+        "file_potential_line_x": "outputs/out_analytical_debye2_potencial_osa_x.png",
+        "show_interactive_gui_windows": true,
+        "save_plots_to_disk": true,
+        "export_csv_time_series": false,
+        "output_format": "h5",
+        "output_h5_filepath": "outputs/out_analytical_debye2.h5",
+        "output_npz_filepath": "outputs/out_analytical_debye2.npz",
+        "output_csv_filepath": "outputs/out_analytical_debye2.csv",
+        "enable_checkpointing": false,
+        "checkpoint_interval_steps": 500,
+        "export_vtk": false,
+        "vtk_output_dir": "outputs/paraview_vtk"
+    }
+}

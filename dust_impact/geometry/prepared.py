@@ -405,5 +405,6 @@ def build_simulation_geometry(params: Any) -> PreparedGeometry3D:
         impact_pos=impact_pos,
         impact_normal=impact_normal,
         antenna_geometries=getattr(params, 'antenna_geometries', None),
-        spacecraft_geometry=getattr(getattr(getattr(params, 'geometry', None), 'analytical', None), 'spacecraft', None)
+        # The SPIS body is only known as a conductor mask; an analytical shape would be the unused default
+        spacecraft_geometry=None
     )

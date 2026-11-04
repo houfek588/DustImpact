@@ -5,6 +5,7 @@ Decomposed architecture orchestrating ParticleEnsemble, FieldSolver3D, and Anten
 Maintains 100% backward compatibility for existing callers and test suites.
 """
 
+import time
 from typing import Dict, Any, List, Optional
 import numpy as np
 
@@ -398,8 +399,9 @@ class DustImpactSimulation3D:
         stream_to_disk: bool = False,
     ) -> Dict[str, Any]:
         """Runs the full 3D PIC simulation over all configured time steps."""
-        print(f"Spouštím 3D Simulaci... Mřížka: {self.p.Nx}x{self.p.Ny}x{self.p.Nz} | Počet antén: {self.num_antennas}")
+        print(f"Spouštím 3D Simulaci... Mřížka: {self.p.Nx}x{self.p.Ny}x{self.p.Nz} | Počet antén: {self.num_antennas}", flush=True)
 
+        t_start = time.perf_counter()
         for step in range(self.p.steps):
             self.step(step)
 
@@ -424,9 +426,16 @@ class DustImpactSimulation3D:
                     print(f"  [VAROVÁNÍ] Uložení checkpointu selhalo: {cp_err}")
 
             if step % (max(1, self.p.steps // 100)) == 0:
-                print(f"  -> Průběh: {int(step / self.p.steps * 100)}% ({step}/{self.p.steps} kroků)")
+                # Flush so progress is visible when stdout is a pipe or a batch log (e.g. SLURM)
+                elapsed = time.perf_counter() - t_start
+                eta = elapsed / (step + 1) * (self.p.steps - step - 1)
+                print(
+                    f"  -> Průběh: {int(step / self.p.steps * 100)}% ({step}/{self.p.steps} kroků)"
+                    f" | uplynulo {elapsed:.0f} s | zbývá ~{eta:.0f} s",
+                    flush=True,
+                )
 
-        print(f"  -> Průběh: 100% ({self.p.steps}/{self.p.steps} kroků)")
+        print(f"  -> Průběh: 100% ({self.p.steps}/{self.p.steps} kroků) | celkem {time.perf_counter() - t_start:.0f} s", flush=True)
 
         res = self._build_results_dict()
         if stream_to_disk:

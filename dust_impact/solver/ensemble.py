@@ -14,6 +14,7 @@ from dust_impact.physics.emissions import sample_maxwellian_velocities, sample_h
 from dust_impact.numerics.pushers import leapfrog_step_3d
 from dust_impact.solver.config_loader import SimulationParams3D
 from dust_impact.geometry.surface import check_wire_collision_3d
+from dust_impact.geometry.analytical import voxelize_analytical_spacecraft_part
 
 
 class ParticleEnsemble:
@@ -80,10 +81,7 @@ class ParticleEnsemble:
             grid_step = max(self.p.dx, self.p.dy, self.p.dz)
             r_start = r0 + n * (0.2 * grid_step)
             for step_mult in range(1, 50):
-                ix = np.clip(int((r_start[0] - self.p.x_grid[0]) / self.p.dx), 0, self.p.Nx - 1)
-                iy = np.clip(int((r_start[1] - self.p.y_grid[0]) / self.p.dy), 0, self.p.Ny - 1)
-                iz = np.clip(int((r_start[2] - self.p.z_grid[0]) / self.p.dz), 0, self.p.Nz - 1)
-                if not self.spacecraft_mask_3d[ix, iy, iz]:
+                if not self._inside_spacecraft(r_start[0:1], r_start[1:2], r_start[2:3])[0]:
                     break
                 r_start = r_start + n * (0.2 * grid_step)
 
@@ -103,9 +101,47 @@ class ParticleEnsemble:
 
         self.cloud_injected = False
 
+    def _spacecraft_shape(self) -> Optional[Any]:
+        """
+        Exact analytical description of the spacecraft body (sphere, box, cylinder or composite), or
+        None when the body is only known as a conductor mask on the grid (SPIS geometry).
+        """
+        geom_cfg = getattr(self.p, 'geometry', None)
+        if getattr(geom_cfg, 'source', 'analytical') != 'analytical':
+            return None
+        sc_geom = self.spacecraft_geometry
+        if sc_geom is None and geom_cfg is not None:
+            sc_geom = getattr(getattr(geom_cfg, 'analytical', None), 'spacecraft', None)
+        if sc_geom is None or not hasattr(sc_geom, 'type'):
+            return None
+        return sc_geom
+
+    def _inside_spacecraft(self, x: np.ndarray, y: np.ndarray, z: np.ndarray) -> np.ndarray:
+        """
+        Tests which points lie inside the spacecraft body.
+
+        An analytical body is tested exactly, so that the collision surface coincides with the
+        surface the reflection model places particles on. Otherwise the conductor mask is looked up
+        at the nearest grid node, i.e. every node represents the cube of half-width dx/2 around it
+        (the same region the field solver treats as conductor).
+
+        Args:
+            x, y, z: Point coordinates [m], arrays of equal shape.
+
+        Returns:
+            Boolean array of the same shape, True inside the spacecraft.
+        """
+        shape = self._spacecraft_shape()
+        if shape is not None:
+            return voxelize_analytical_spacecraft_part(x, y, z, shape)
+        ix = np.clip(np.rint((x - self.p.x_grid[0]) / self.p.dx), 0, self.p.Nx - 1).astype(np.int64)
+        iy = np.clip(np.rint((y - self.p.y_grid[0]) / self.p.dy), 0, self.p.Ny - 1).astype(np.int64)
+        iz = np.clip(np.rint((z - self.p.z_grid[0]) / self.p.dz), 0, self.p.Nz - 1).astype(np.int64)
+        return self.spacecraft_mask_3d[ix, iy, iz]
+
     def _sample_outside_spacecraft(self, n_pts: int) -> np.ndarray:
         """
-        Samples points uniformly in the domain box, excluding cells covered by the spacecraft mask.
+        Samples points uniformly in the domain box, excluding the spacecraft body.
 
         Rejection sampling is done block-wise: all points falling into masked cells are redrawn
         together until none remains inside the spacecraft.
@@ -122,15 +158,11 @@ class ParticleEnsemble:
         """
         low = np.array([-self.p.L_x, -self.p.L_y, -self.p.L_z])
         high = np.array([self.p.L_x, self.p.L_y, self.p.L_z])
-        origin = np.array([self.p.x_grid[0], self.p.y_grid[0], self.p.z_grid[0]])
-        spacing = np.array([self.p.dx, self.p.dy, self.p.dz])
-        upper = np.array([self.p.Nx - 1, self.p.Ny - 1, self.p.Nz - 1])
 
         pts = np.random.uniform(low=low, high=high, size=(n_pts, 3))
         redraw = np.arange(n_pts)
         while redraw.size > 0:
-            idx = np.clip(((pts[redraw] - origin) / spacing).astype(int), 0, upper)
-            inside = self.spacecraft_mask_3d[idx[:, 0], idx[:, 1], idx[:, 2]]
+            inside = self._inside_spacecraft(pts[redraw, 0], pts[redraw, 1], pts[redraw, 2])
             redraw = redraw[inside]
             pts[redraw] = np.random.uniform(low=low, high=high, size=(redraw.size, 3))
         return pts
@@ -165,12 +197,7 @@ class ParticleEnsemble:
         if len(hit_indices) == 0:
             return
 
-        sc_geom = self.spacecraft_geometry
-        if sc_geom is None and hasattr(self.p, 'geometry'):
-            geom_cfg = getattr(self.p, 'geometry', None)
-            if getattr(geom_cfg, 'source', None) == 'analytical':
-                sc_geom = getattr(getattr(geom_cfg, 'analytical', None), 'spacecraft', None)
-
+        sc_geom = self._spacecraft_shape()
         geom_type = str(getattr(sc_geom, 'type', '')).lower() if sc_geom is not None else ''
         eps = 0.05 * min(self.p.dx, self.p.dy, self.p.dz)
 
@@ -333,15 +360,7 @@ class ParticleEnsemble:
         y_mid = 0.5 * (y_act + y_new)
         z_mid = 0.5 * (z_act + z_new)
 
-        idx_x_new = np.clip(np.floor((x_new - self.p.x_grid[0]) / self.p.dx), 0, self.p.Nx - 1).astype(np.int64)
-        idx_y_new = np.clip(np.floor((y_new - self.p.y_grid[0]) / self.p.dy), 0, self.p.Ny - 1).astype(np.int64)
-        idx_z_new = np.clip(np.floor((z_new - self.p.z_grid[0]) / self.p.dz), 0, self.p.Nz - 1).astype(np.int64)
-
-        idx_x_mid = np.clip(np.floor((x_mid - self.p.x_grid[0]) / self.p.dx), 0, self.p.Nx - 1).astype(np.int64)
-        idx_y_mid = np.clip(np.floor((y_mid - self.p.y_grid[0]) / self.p.dy), 0, self.p.Ny - 1).astype(np.int64)
-        idx_z_mid = np.clip(np.floor((z_mid - self.p.z_grid[0]) / self.p.dz), 0, self.p.Nz - 1).astype(np.int64)
-
-        hit_sc = self.spacecraft_mask_3d[idx_x_new, idx_y_new, idx_z_new] | self.spacecraft_mask_3d[idx_x_mid, idx_y_mid, idx_z_mid]
+        hit_sc = self._inside_spacecraft(x_new, y_new, z_new) | self._inside_spacecraft(x_mid, y_mid, z_mid)
         global_active_indices = np.where(new_active)[0]
         destroyed_by_sc = global_active_indices[hit_sc]
 
