@@ -29,7 +29,7 @@ from scipy.interpolate import RegularGridInterpolator
 from scipy.special import erfc
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
-from dust_impact.physics.constants import m_e  # noqa: E402
+from dust_impact.physics.constants import e, m_e  # noqa: E402
 from dust_impact.solver.config_loader import setup_simulation_parameters_3d  # noqa: E402
 from dust_impact.geometry import build_simulation_geometry  # noqa: E402
 from dust_impact.solver.sim_core import DustImpactSimulation3D  # noqa: E402
@@ -81,20 +81,25 @@ def main() -> None:
     print(f"{args.config}: V_sc = {p.V_sc_bias:+.2f} V, V_start = {V_start:+.3f} V, "
           f"int E dl to the wall = {V_felt:+.3f} V, {p.steps} steps ({p.steps * p.dt * 1e6:.1f} us), "
           f"{time.time() - t0:.0f} s")
-    for name, q, T, xs, ys, zs, active in (
-        ('electrons', -1.0, p.impact_electron_temp_eV, P.x_e, P.y_e, P.z_e, P.active_e),
-        ('ions', +1.0, p.impact_ion_temp_eV, P.x_i, P.y_i, P.z_i, P.active_i),
+    V_interp = RegularGridInterpolator(grid, geom.V_bg, bounds_error=False, fill_value=0.0)
+    for name, q, T, mass, xs, ys, zs, vx, vy, vz, active in (
+        ('electrons', -1.0, p.impact_electron_temp_eV, m_e, P.x_e, P.y_e, P.z_e, P.vx_e, P.vy_e, P.vz_e, P.active_e),
+        ('ions', +1.0, p.impact_ion_temp_eV, p.m_i, P.x_i, P.y_i, P.z_i, P.vx_i, P.vy_i, P.vz_i, P.active_i),
     ):
         r = np.sqrt((xs - centre[0])**2 + (ys - centre[1])**2 + (zs - centre[2])**2)
         returned = np.mean(~active & (r < R + 2.0 * p.dx))
         flying = np.mean(active)
         escaped = 1.0 - returned - flying
+        # Still-flying particles reach the grounded wall if their total energy exceeds q * 0 (no self-field)
+        a = active
+        E_tot = 0.5 * mass * (vx[a]**2 + vy[a]**2 + vz[a]**2) / e + q * V_interp(np.c_[xs[a], ys[a], zs[a]])
+        flying_escape = np.count_nonzero(E_tot > 0.0) / len(active)
         p_exact = escape_fraction(q * (0.0 - V_start) / T)
         p_felt = escape_fraction(q * (0.0 - V_felt) / T)
         print(f"  {name:9s} T = {T:.1f} eV: returned {returned:.4f}, still flying {flying:.4f}, "
-              f"escaped {escaped:.4f} | analytical {p_exact:.4f} (with felt drop {p_felt:.4f})")
-    print("  escaped + still flying is an upper bound of the final escaped fraction "
-          "(slow particles may still return).")
+              f"escaped {escaped:.4f} -> final escape {escaped + flying_escape:.4f} "
+              f"| analytical {p_exact:.4f} (with felt drop {p_felt:.4f})")
+    print("  final escape = escaped + still-flying particles with positive total energy (they reach the wall).")
 
 
 if __name__ == '__main__':

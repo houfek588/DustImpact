@@ -424,6 +424,31 @@ def intersect_ray_analytical_spacecraft(
     return None
 
 
+def _point_inside_spacecraft(params: Any, point: np.ndarray, spacecraft_mask_3d: np.ndarray) -> bool:
+    """
+    True if the point lies on the surface or inside the spacecraft: exact test for an analytical body,
+    nearest-node mask lookup otherwise (False outside the grid).
+    """
+    geom = getattr(params, 'geometry', None)
+    if geom is not None and getattr(geom, 'source', '') == 'analytical':
+        sc_part = getattr(getattr(geom, 'analytical', None), 'spacecraft', None)
+        if sc_part is not None:
+            from dust_impact.geometry.analytical import voxelize_analytical_spacecraft_part
+            return bool(voxelize_analytical_spacecraft_part(
+                np.array([point[0]]), np.array([point[1]]), np.array([point[2]]), sc_part
+            )[0])
+    if spacecraft_mask_3d is None:
+        return False
+    idx = []
+    for c, g, h in ((point[0], params.x_grid, params.dx), (point[1], params.y_grid, params.dy),
+                    (point[2], params.z_grid, params.dz)):
+        i = int(np.rint((c - g[0]) / h))
+        if i < 0 or i >= len(g):
+            return False
+        idx.append(i)
+    return bool(spacecraft_mask_3d[tuple(idx)])
+
+
 def compute_impact_intersection_and_normal(
     params: Any,
     Vw_body: np.ndarray,
@@ -481,6 +506,17 @@ def compute_impact_intersection_and_normal(
     dir_u = v_dir / v_norm
     intersection_point = None
     normal_vector = None
+    march_extra = 0.0
+
+    # A start point on the surface or inside the body would make the ray exit through the far side, so
+    # the grain is moved back against its direction of flight to a point outside the body; the first
+    # surface crossing is then the entry point on the near side, as intended
+    if _point_inside_spacecraft(params, P_start, spacecraft_mask_3d):
+        march_extra = 2.0 * max(params.L_x, params.L_y, params.L_z)
+        P_shifted = P_start - march_extra * dir_u
+        print(f"  [VAROVÁNÍ] Výchozí místo prachu {list(P_start)} leží na povrchu nebo uvnitř sondy; "
+              f"bod dopadu se hledá na přivrácené straně (dráha prodloužena proti směru letu).")
+        P_start = P_shifted
 
     # Analytical intersection if geometry source is analytical
     if hasattr(params, 'geometry') and getattr(params.geometry, 'source', '') == 'analytical':
@@ -496,7 +532,7 @@ def compute_impact_intersection_and_normal(
 
     # Grid step ray-casting fallback if mesh / analytical didn't return point
     if intersection_point is None:
-        max_dist = 2.0 * max(params.L_x, params.L_y, params.L_z)
+        max_dist = 2.0 * max(params.L_x, params.L_y, params.L_z) + march_extra
         intersection_point = ray_march_voxel_grid(
             P_start, dir_u, spacecraft_mask_3d, x_grid, y_grid, z_grid, dx, dy, dz, max_dist=max_dist
         )

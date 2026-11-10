@@ -277,6 +277,7 @@ def setup_simulation_parameters_3d(
         temperature_eV=float(imp_s.temperature_eV) if imp_s.temperature_eV is not None else None,
         ion_drift_speed_m_s=float(imp_s.ion_drift_speed_m_s),
         ion_cone_half_angle_deg=float(imp_s.ion_cone_half_angle_deg),
+        electron_emission=str(imp_s.electron_emission),
     )
 
     # 4. Physics configuration

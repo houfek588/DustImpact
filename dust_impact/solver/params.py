@@ -73,6 +73,7 @@ class ImpactConfig:
     temperature_eV: Optional[float] = None
     ion_drift_speed_m_s: float = 0.0
     ion_cone_half_angle_deg: float = 90.0
+    electron_emission: str = "half_maxwellian"
 
     def __post_init__(self):
         if self.temperature_eV is not None:
@@ -140,6 +141,7 @@ class PhysicsConfig:
                 temperature_eV=temp_alias,
                 ion_drift_speed_m_s=float(self.impact.get('ion_drift_speed_m_s', 0.0)),
                 ion_cone_half_angle_deg=float(self.impact.get('ion_cone_half_angle_deg', 90.0)),
+                electron_emission=str(self.impact.get('electron_emission', 'half_maxwellian')),
             )
 
         if self.impact_cloud_temperature_eV is not None:

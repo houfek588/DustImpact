@@ -11,9 +11,12 @@ import scipy.sparse as sp
 import scipy.sparse.linalg as spla
 
 from dust_impact.physics.constants import eps_0
-from dust_impact.numerics.interpolators import interp_field_3d, deposit_charge_cic_3d
+from dust_impact.numerics.interpolators import (
+    interp_field_3d, deposit_charge_cic_3d, trilinear_gradient_3d, cells_touching_mask, particle_cell_indices
+)
 from dust_impact.numerics.poisson import build_pyamg_solver, assemble_negative_laplacian_3d, HAS_PYAMG
 from dust_impact.numerics.gradient import ConductorGradient3D
+from scipy.ndimage import binary_dilation
 from dust_impact.solver.config_loader import SimulationParams3D, SimulationToggles3D
 
 
@@ -38,6 +41,7 @@ class FieldSolver3D:
         Vw_sc: Optional[np.ndarray] = None,
         Ew_sc: Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]] = None,
         wire_coupling: Optional[np.ndarray] = None,
+        Vw_list: Optional[List[np.ndarray]] = None,
     ):
         self.p = params
         self.toggles = toggles
@@ -60,6 +64,10 @@ class FieldSolver3D:
         # Spacecraft weighting potential and field (floating spacecraft only, else None)
         self.Vw_sc = Vw_sc
         self.Ew_sc = Ew_sc
+        # Antenna weighting potentials (energy-conserving force in cells touching a conductor)
+        self.Vw_list = Vw_list
+        self._dV_ant = np.zeros(num_antennas)
+        self._dV_sc = 0.0
 
         Nx, Ny, Nz = self.p.Nx, self.p.Ny, self.p.Nz
         self.V_self_grid = np.zeros((Nx, Ny, Nz), dtype=np.float64)
@@ -80,12 +88,24 @@ class FieldSolver3D:
         # Self-field E uses one-sided differences on conductor surface nodes (V_self = 0 there)
         self.gradient = ConductorGradient3D(self.dirichlet_conductors, (self.p.dx, self.p.dy, self.p.dz))
 
+        # Cells within NEAR_CONDUCTOR_LAYERS of a conductor node: there the interpolated nodal self-field
+        # is not a gradient field (staircase surface), so the self-field force uses the exact gradient
+        # of the trilinearly interpolated V_self (see get_accel)
+        near_nodes = (
+            binary_dilation(self.dirichlet_conductors, iterations=self.NEAR_CONDUCTOR_LAYERS)
+            if np.any(self.dirichlet_conductors) else self.dirichlet_conductors
+        )
+        self.near_conductor_cells = cells_touching_mask(near_nodes)
+
         self.amg_solver = None
         self.lu_solver = None
         # Diagnostics of the most recent Poisson solve
         self.last_poisson_residual = 0.0
         self.last_poisson_iterations = 0
         self._build_poisson_solver()
+
+    # Layers of cells around conductor nodes in which the self-field force is an exact potential gradient
+    NEAR_CONDUCTOR_LAYERS = 2
 
     # Relative residual ||b - A V|| / ||b|| required from the iterative Poisson solve, and its
     # iteration cap; with a warm start from the previous step a few CG iterations usually suffice.
@@ -176,6 +196,26 @@ class FieldSolver3D:
         V_ref = self.p.V_sc_bias if self._background_enabled() else 0.0
         return float(voltage_sc[max(0, step - 1)] - V_ref)
 
+    def _external_potential_terms(self) -> Tuple[List[np.ndarray], List[float]]:
+        """
+        Grids and coefficients whose weighted sum is the external potential seen by the particles:
+        V_bg_base (if enabled) + sum_a dV_a Vw_a + dV_sc Vw_sc, consistent with update_background_fields.
+        """
+        fields: List[np.ndarray] = []
+        weights: List[float] = []
+        if self._background_enabled():
+            fields.append(self.V_bg_base)
+            weights.append(1.0)
+        if self.Vw_list is not None:
+            for Vw, dV in zip(self.Vw_list, self._dV_ant):
+                if abs(dV) > 1e-6:
+                    fields.append(Vw)
+                    weights.append(float(dV))
+        if self.Vw_sc is not None and abs(self._dV_sc) > 1e-9:
+            fields.append(self.Vw_sc)
+            weights.append(self._dV_sc)
+        return fields, weights
+
     def update_background_fields(
         self, voltage_ant: np.ndarray, step: int, voltage_sc: Optional[np.ndarray] = None
     ) -> None:
@@ -207,6 +247,8 @@ class FieldSolver3D:
             Ez_tot += dV_sc * self.Ew_sc[2]
 
         self.Ex_bg, self.Ey_bg, self.Ez_bg = Ex_tot, Ey_tot, Ez_tot
+        self._dV_ant = np.asarray(dV_all, dtype=float)
+        self._dV_sc = float(dV_sc) if self.Vw_sc is not None else 0.0
 
     def background_potential(
         self,
@@ -304,15 +346,53 @@ class FieldSolver3D:
 
     def get_accel(self, x_act: np.ndarray, y_act: np.ndarray, z_act: np.ndarray,
                   mass: float, phys_charge: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Calculates total acceleration from background and self-consistent electric fields."""
-        Ex_tot = self.interp_field(x_act, y_act, z_act, self.Ex_bg)
-        Ey_tot = self.interp_field(x_act, y_act, z_act, self.Ey_bg)
-        Ez_tot = self.interp_field(x_act, y_act, z_act, self.Ez_bg)
+        """
+        Calculates total acceleration from background and self-consistent electric fields.
 
-        if getattr(self.toggles, 'enable_plasma_self_field', True):
-            Ex_tot += self.interp_field(x_act, y_act, z_act, self.Ex_self)
-            Ey_tot += self.interp_field(x_act, y_act, z_act, self.Ey_self)
-            Ez_tot += self.interp_field(x_act, y_act, z_act, self.Ez_self)
+        External field (static background + conductor potential perturbations): exact gradient of the
+        trilinearly interpolated external potential for every particle. This force is conservative, so a
+        particle crossing the sheath of a conductor gains exactly q times the potential difference;
+        trilinear interpolation of nodal fields next to a staircase surface deviates from it by up to
+        ~10 % for oblique paths and biases charge escape and recollection.
+
+        Self-field: trilinear interpolation of the nodal field (zero self-force of an isolated particle
+        with CIC deposition), except in cells near conductors, where the exact gradient of the
+        interpolated V_self is used for the same reason as above.
+        """
+        grid = (self.p.x_grid, self.p.y_grid, self.p.z_grid)
+        spacing = (self.p.dx, self.p.dy, self.p.dz)
+        n = len(x_act)
+        Ex_tot, Ey_tot, Ez_tot = np.zeros(n), np.zeros(n), np.zeros(n)
+
+        if self.Vw_list is None and self.num_antennas > 0:
+            # Without the antenna weighting potentials the external potential is unknown; fall back to
+            # the interpolated nodal external field
+            Ex_tot += self.interp_field(x_act, y_act, z_act, self.Ex_bg)
+            Ey_tot += self.interp_field(x_act, y_act, z_act, self.Ey_bg)
+            Ez_tot += self.interp_field(x_act, y_act, z_act, self.Ez_bg)
+            ext_fields = []
+        else:
+            ext_fields, ext_weights = self._external_potential_terms()
+        if ext_fields and n > 0:
+            gx, gy, gz = trilinear_gradient_3d(x_act, y_act, z_act, *grid, *spacing, ext_fields, ext_weights)
+            Ex_tot -= gx
+            Ey_tot -= gy
+            Ez_tot -= gz
+
+        if getattr(self.toggles, 'enable_plasma_self_field', True) and n > 0:
+            Ex_s = self.interp_field(x_act, y_act, z_act, self.Ex_self)
+            Ey_s = self.interp_field(x_act, y_act, z_act, self.Ey_self)
+            Ez_s = self.interp_field(x_act, y_act, z_act, self.Ez_self)
+            i, j, k = particle_cell_indices(x_act, y_act, z_act, *grid, *spacing, self.near_conductor_cells.shape)
+            near = self.near_conductor_cells[i, j, k]
+            if np.any(near):
+                gx, gy, gz = trilinear_gradient_3d(
+                    x_act[near], y_act[near], z_act[near], *grid, *spacing, [self.V_self_grid], [1.0]
+                )
+                Ex_s[near], Ey_s[near], Ez_s[near] = -gx, -gy, -gz
+            Ex_tot += Ex_s
+            Ey_tot += Ey_s
+            Ez_tot += Ez_s
 
         factor = phys_charge / mass
         return factor * Ex_tot, factor * Ey_tot, factor * Ez_tot

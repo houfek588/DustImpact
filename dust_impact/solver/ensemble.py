@@ -71,7 +71,8 @@ class ParticleEnsemble:
             else:
                 n = np.array([-0.7071, 0.7071, 0.0])
 
-            # Electrons: half-Maxwellian of the impact cloud temperature expanding away from the surface.
+            # Electrons: half-Maxwellian of the impact cloud temperature expanding away from the surface, or
+            # an isotropic Maxwellian (the half moving into the surface is recollected in the first steps).
             # Ions: drifting conical beam around the normal if a drift speed is given, else half-Maxwellian.
             impact_cfg = getattr(self.p, 'impact', None)
             v_drift = float(getattr(impact_cfg, 'ion_drift_speed_m_s', 0.0) or 0.0)
@@ -82,7 +83,10 @@ class ParticleEnsemble:
                 )
             else:
                 v_i = sample_half_maxwellian_velocities(self.p.N_particles, T_i_eV, self.p.m_i, n)
-            v_e = sample_half_maxwellian_velocities(self.p.N_particles, T_e_eV, m_e, n)
+            if str(getattr(impact_cfg, 'electron_emission', 'half_maxwellian')) == 'isotropic':
+                v_e = sample_maxwellian_velocities(self.p.N_particles, T_e_eV, m_e)
+            else:
+                v_e = sample_half_maxwellian_velocities(self.p.N_particles, T_e_eV, m_e, n)
             self.vx_i, self.vy_i, self.vz_i = v_i[:, 0], v_i[:, 1], v_i[:, 2]
             self.vx_e, self.vy_e, self.vz_e = v_e[:, 0], v_e[:, 1], v_e[:, 2]
 

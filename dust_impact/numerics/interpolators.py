@@ -5,7 +5,7 @@ Cloud-in-Cell (CIC) charge deposition schemes.
 Supports Numba JIT acceleration with pure NumPy vectorized fallback.
 """
 
-from typing import Union
+from typing import List, Tuple, Union
 import numpy as np
 
 try:
@@ -57,6 +57,72 @@ def interp_field_3d(x: np.ndarray, y: np.ndarray, z: np.ndarray,
     c1 = c01 * (1 - ty) + c11 * ty
 
     return c0 * (1 - tz) + c1 * tz
+
+
+def trilinear_gradient_3d(
+    x: np.ndarray, y: np.ndarray, z: np.ndarray,
+    x_grid: np.ndarray, y_grid: np.ndarray, z_grid: np.ndarray,
+    dx: float, dy: float, dz: float,
+    fields: List[np.ndarray], weights: List[float],
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Exact gradient of the trilinear interpolant of V = sum_m weights[m] * fields[m] at the particles.
+
+    Inside a cell the trilinear interpolant is a smooth function, so a force F = -q grad V computed this
+    way does work q [V(a) - V(b)] along any path between two points of the cell: it is exactly
+    conservative, unlike the trilinear interpolation of nodal fields E = -grad V. The cell selection and
+    the clipping at the domain edges are those of interp_field_3d.
+
+    Returns
+    -------
+    (dV/dx, dV/dy, dV/dz) at the particle positions [V/m].
+    """
+    Nx, Ny, Nz = fields[0].shape
+    idx_x = np.clip((x - x_grid[0]) / dx, 0.0, float(Nx - 1.0001))
+    idx_y = np.clip((y - y_grid[0]) / dy, 0.0, float(Ny - 1.0001))
+    idx_z = np.clip((z - z_grid[0]) / dz, 0.0, float(Nz - 1.0001))
+    i = np.clip(np.floor(idx_x).astype(np.int64), 0, Nx - 2)
+    j = np.clip(np.floor(idx_y).astype(np.int64), 0, Ny - 2)
+    k = np.clip(np.floor(idx_z).astype(np.int64), 0, Nz - 2)
+    tx, ty, tz = idx_x - i, idx_y - j, idx_z - k
+
+    def corner(di: int, dj: int, dk: int) -> np.ndarray:
+        return sum(w * F[i + di, j + dj, k + dk] for F, w in zip(fields, weights))
+
+    c000, c100, c010, c110 = corner(0, 0, 0), corner(1, 0, 0), corner(0, 1, 0), corner(1, 1, 0)
+    c001, c101, c011, c111 = corner(0, 0, 1), corner(1, 0, 1), corner(0, 1, 1), corner(1, 1, 1)
+
+    gx = ((1 - ty) * (1 - tz) * (c100 - c000) + ty * (1 - tz) * (c110 - c010)
+          + (1 - ty) * tz * (c101 - c001) + ty * tz * (c111 - c011)) / dx
+    gy = ((1 - tx) * (1 - tz) * (c010 - c000) + tx * (1 - tz) * (c110 - c100)
+          + (1 - tx) * tz * (c011 - c001) + tx * tz * (c111 - c101)) / dy
+    gz = ((1 - tx) * (1 - ty) * (c001 - c000) + tx * (1 - ty) * (c101 - c100)
+          + (1 - tx) * ty * (c011 - c010) + tx * ty * (c111 - c110)) / dz
+    return gx, gy, gz
+
+
+def cells_touching_mask(node_mask: np.ndarray) -> np.ndarray:
+    """Boolean array (Nx-1, Ny-1, Nz-1) of cells with at least one corner node in node_mask."""
+    m = np.asarray(node_mask, dtype=bool)
+    cells = np.zeros(tuple(s - 1 for s in m.shape), dtype=bool)
+    for di in (0, 1):
+        for dj in (0, 1):
+            for dk in (0, 1):
+                cells |= m[di:m.shape[0] - 1 + di, dj:m.shape[1] - 1 + dj, dk:m.shape[2] - 1 + dk]
+    return cells
+
+
+def particle_cell_indices(
+    x: np.ndarray, y: np.ndarray, z: np.ndarray,
+    x_grid: np.ndarray, y_grid: np.ndarray, z_grid: np.ndarray,
+    dx: float, dy: float, dz: float, shape: Tuple[int, int, int],
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Cell indices (i, j, k) of the particles, as selected by interp_field_3d."""
+    Nx, Ny, Nz = shape
+    i = np.clip(np.floor(np.clip((x - x_grid[0]) / dx, 0.0, Nx - 1.0001)).astype(np.int64), 0, Nx - 2)
+    j = np.clip(np.floor(np.clip((y - y_grid[0]) / dy, 0.0, Ny - 1.0001)).astype(np.int64), 0, Ny - 2)
+    k = np.clip(np.floor(np.clip((z - z_grid[0]) / dz, 0.0, Nz - 1.0001)).astype(np.int64), 0, Nz - 2)
+    return i, j, k
 
 
 if HAS_NUMBA:

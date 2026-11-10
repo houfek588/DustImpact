@@ -129,6 +129,27 @@ class TestPhysicsConsistency(unittest.TestCase):
                 sigma = np.sqrt(e * T / m)
                 self.assertAlmostEqual(np.mean(v_n) / (sigma * np.sqrt(2.0 / np.pi)), 1.0, delta=0.01)
 
+    def test_impact_cloud_isotropic_electrons(self):
+        """
+        electron_emission = 'isotropic': the impact electrons are a full Maxwellian (half of them move
+        into the surface, <v . n> = 0, m <v_k^2> = k_B T), while the ions keep their half-Maxwellian.
+        """
+        np.random.seed(17)
+        normal = np.array([0.0, 1.0, 0.0])
+        params = _cubic_params(
+            8, 1.0,
+            num_macroparticles=200000,
+            plasma_injection_mode="point_cloud",
+            impact=ImpactConfig(electron_temperature_eV=2.0, ion_temperature_eV=5.0, electron_emission="isotropic"),
+            impact_normal=list(normal),
+        )
+        ens = ParticleEnsemble(params, np.zeros((8, 8, 8), dtype=bool), num_antennas=0)
+        v_e = np.column_stack([ens.vx_e, ens.vy_e, ens.vz_e])
+        self.assertAlmostEqual(np.mean(v_e @ normal < 0.0), 0.5, delta=0.01)
+        np.testing.assert_allclose(m_e * np.mean(v_e**2, axis=0) / e, 2.0, rtol=0.02)
+        v_i = np.column_stack([ens.vx_i, ens.vy_i, ens.vz_i])
+        self.assertGreaterEqual((v_i @ normal).min(), 0.0)
+
     def test_impact_cloud_ion_cone_beam(self):
         """
         With ion_drift_speed_m_s > 0 the impact ions form a conical beam around the surface normal:

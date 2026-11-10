@@ -331,6 +331,16 @@
                     "description": "Shorthand kinetic temperature for both electrons and ions in the impact cloud [eV]",
                     "title": "Temperature Ev"
                 },
+                "electron_emission": {
+                    "default": "half_maxwellian",
+                    "description": "Velocity distribution of the impact-cloud electrons: 'half_maxwellian' (all leave the surface) or 'isotropic' (full Maxwellian at the impact point; the half moving into the surface is recollected at once, as in the impact-plasma model of Shen et al. 2021, 2023)",
+                    "enum": [
+                        "half_maxwellian",
+                        "isotropic"
+                    ],
+                    "title": "Electron Emission",
+                    "type": "string"
+                },
                 "ion_drift_speed_m_s": {
                     "default": 0.0,
                     "description": "Ion expansion (drift) speed of the impact cloud [m/s]; ions then form a conical beam around the surface normal with ion_temperature_eV as thermal spread in the beam frame. 0 keeps the thermal half-Maxwellian ions",

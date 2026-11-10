@@ -104,7 +104,7 @@ class DustImpactSimulation3D:
         self.field_solver = FieldSolver3D(
             params, toggles, V_bg, Ex_bg, Ey_bg, Ez_bg,
             Ewx_list, Ewy_list, Ewz_list, self.combined_mask, self.num_antennas,
-            Vw_sc=Vw_sc, Ew_sc=Ew_sc, wire_coupling=wire_coupling,
+            Vw_sc=Vw_sc, Ew_sc=Ew_sc, wire_coupling=wire_coupling, Vw_list=Vw_grids,
         )
         self.collector = AntennaCircuitCollector(
             params, toggles, self.num_antennas,

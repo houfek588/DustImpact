@@ -337,6 +337,12 @@ class ImpactSchema(StrictBaseModel):
         None,
         description="Shorthand kinetic temperature for both electrons and ions in the impact cloud [eV]"
     )
+    electron_emission: Literal["half_maxwellian", "isotropic"] = Field(
+        "half_maxwellian",
+        description="Velocity distribution of the impact-cloud electrons: 'half_maxwellian' (all leave the "
+                    "surface) or 'isotropic' (full Maxwellian at the impact point; the half moving into the "
+                    "surface is recollected at once, as in the impact-plasma model of Shen et al. 2021, 2023)"
+    )
     ion_drift_speed_m_s: Annotated[float, Field(ge=0.0)] = Field(
         0.0,
         description="Ion expansion (drift) speed of the impact cloud [m/s]; ions then form a conical beam around "
