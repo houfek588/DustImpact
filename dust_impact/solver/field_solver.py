@@ -88,9 +88,9 @@ class FieldSolver3D:
         # Self-field E uses one-sided differences on conductor surface nodes (V_self = 0 there)
         self.gradient = ConductorGradient3D(self.dirichlet_conductors, (self.p.dx, self.p.dy, self.p.dz))
 
-        # Cells within NEAR_CONDUCTOR_LAYERS of a conductor node: there the interpolated nodal self-field
-        # is not a gradient field (staircase surface), so the self-field force uses the exact gradient
-        # of the trilinearly interpolated V_self (see get_accel)
+        # Cells within NEAR_CONDUCTOR_LAYERS of a conductor node: there the interpolated nodal fields are
+        # not a gradient field (staircase surface), so the force is the exact gradient of the trilinearly
+        # interpolated total potential (see get_accel)
         near_nodes = (
             binary_dilation(self.dirichlet_conductors, iterations=self.NEAR_CONDUCTOR_LAYERS)
             if np.any(self.dirichlet_conductors) else self.dirichlet_conductors
@@ -104,8 +104,8 @@ class FieldSolver3D:
         self.last_poisson_iterations = 0
         self._build_poisson_solver()
 
-    # Layers of cells around conductor nodes in which the self-field force is an exact potential gradient
-    NEAR_CONDUCTOR_LAYERS = 2
+    # Layers of cells around conductor nodes in which the force is an exact potential gradient
+    NEAR_CONDUCTOR_LAYERS = 3
 
     # Relative residual ||b - A V|| / ||b|| required from the iterative Poisson solve, and its
     # iteration cap; with a warm start from the previous step a few CG iterations usually suffice.
@@ -349,50 +349,45 @@ class FieldSolver3D:
         """
         Calculates total acceleration from background and self-consistent electric fields.
 
-        External field (static background + conductor potential perturbations): exact gradient of the
-        trilinearly interpolated external potential for every particle. This force is conservative, so a
-        particle crossing the sheath of a conductor gains exactly q times the potential difference;
-        trilinear interpolation of nodal fields next to a staircase surface deviates from it by up to
-        ~10 % for oblique paths and biases charge escape and recollection.
+        Away from conductors both the external field (static background + conductor potential
+        perturbations) and the self-field are trilinear interpolations of their nodal fields, so their
+        discretisation errors are the same and cancel where the plasma screens the conductor potential.
 
-        Self-field: trilinear interpolation of the nodal field (zero self-force of an isolated particle
-        with CIC deposition), except in cells near conductors, where the exact gradient of the
-        interpolated V_self is used for the same reason as above.
+        In the NEAR_CONDUCTOR_LAYERS cells around conductor nodes the force is the exact gradient of the
+        trilinearly interpolated total potential (external + self). It is conservative, so a particle
+        crossing the sheath gains q times the potential difference; interpolated nodal fields next to a
+        staircase surface miss up to ~10 % of the sheath potential for oblique paths and bias charge
+        escape and recollection. Treating both parts alike keeps the total force consistent there too.
         """
-        grid = (self.p.x_grid, self.p.y_grid, self.p.z_grid)
-        spacing = (self.p.dx, self.p.dy, self.p.dz)
-        n = len(x_act)
-        Ex_tot, Ey_tot, Ez_tot = np.zeros(n), np.zeros(n), np.zeros(n)
+        self_field_on = getattr(self.toggles, 'enable_plasma_self_field', True)
+        Ex_tot = self.interp_field(x_act, y_act, z_act, self.Ex_bg)
+        Ey_tot = self.interp_field(x_act, y_act, z_act, self.Ey_bg)
+        Ez_tot = self.interp_field(x_act, y_act, z_act, self.Ez_bg)
+        if self_field_on:
+            Ex_tot += self.interp_field(x_act, y_act, z_act, self.Ex_self)
+            Ey_tot += self.interp_field(x_act, y_act, z_act, self.Ey_self)
+            Ez_tot += self.interp_field(x_act, y_act, z_act, self.Ez_self)
 
-        if self.Vw_list is None and self.num_antennas > 0:
-            # Without the antenna weighting potentials the external potential is unknown; fall back to
-            # the interpolated nodal external field
-            Ex_tot += self.interp_field(x_act, y_act, z_act, self.Ex_bg)
-            Ey_tot += self.interp_field(x_act, y_act, z_act, self.Ey_bg)
-            Ez_tot += self.interp_field(x_act, y_act, z_act, self.Ez_bg)
-            ext_fields = []
-        else:
-            ext_fields, ext_weights = self._external_potential_terms()
-        if ext_fields and n > 0:
-            gx, gy, gz = trilinear_gradient_3d(x_act, y_act, z_act, *grid, *spacing, ext_fields, ext_weights)
-            Ex_tot -= gx
-            Ey_tot -= gy
-            Ez_tot -= gz
-
-        if getattr(self.toggles, 'enable_plasma_self_field', True) and n > 0:
-            Ex_s = self.interp_field(x_act, y_act, z_act, self.Ex_self)
-            Ey_s = self.interp_field(x_act, y_act, z_act, self.Ey_self)
-            Ez_s = self.interp_field(x_act, y_act, z_act, self.Ez_self)
+        # Without the antenna weighting potentials the external potential is unknown near conductors;
+        # the interpolated nodal fields are then kept everywhere
+        external_known = self.Vw_list is not None or self.num_antennas == 0
+        if external_known and len(x_act) > 0 and np.any(self.near_conductor_cells):
+            grid = (self.p.x_grid, self.p.y_grid, self.p.z_grid)
+            spacing = (self.p.dx, self.p.dy, self.p.dz)
             i, j, k = particle_cell_indices(x_act, y_act, z_act, *grid, *spacing, self.near_conductor_cells.shape)
             near = self.near_conductor_cells[i, j, k]
             if np.any(near):
-                gx, gy, gz = trilinear_gradient_3d(
-                    x_act[near], y_act[near], z_act[near], *grid, *spacing, [self.V_self_grid], [1.0]
-                )
-                Ex_s[near], Ey_s[near], Ez_s[near] = -gx, -gy, -gz
-            Ex_tot += Ex_s
-            Ey_tot += Ey_s
-            Ez_tot += Ez_s
+                fields, weights = self._external_potential_terms()
+                if self_field_on:
+                    fields.append(self.V_self_grid)
+                    weights.append(1.0)
+                if fields:
+                    gx, gy, gz = trilinear_gradient_3d(
+                        x_act[near], y_act[near], z_act[near], *grid, *spacing, fields, weights
+                    )
+                    Ex_tot[near], Ey_tot[near], Ez_tot[near] = -gx, -gy, -gz
+                else:
+                    Ex_tot[near], Ey_tot[near], Ez_tot[near] = 0.0, 0.0, 0.0
 
         factor = phys_charge / mass
         return factor * Ex_tot, factor * Ey_tot, factor * Ez_tot

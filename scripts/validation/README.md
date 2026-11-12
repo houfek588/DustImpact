@@ -21,6 +21,24 @@ z kořene repozitáře. Všechny generované soubory patří do `outputs/`.
 | 5 | `inputs/config_validation_debye_ions.json` | `python -u main.py --config inputs/config_validation_debye_ions.json --dim 3 --no-visualize` | $\lambda_{\text{eff}} = \lambda_{De}/\sqrt{2}$ = 0,74 m |
 | 6 | `inputs/config_shen2023_fig6.json` | `python -u main.py --config inputs/config_shen2023_fig6.json --dim 3 --no-visualize` | tvar monopólového signálu z Obr. 6 v Shen et al. (2023) |
 
+### Série Obr. 2 (Shen et al. 2023)
+
+Devět konfigurací `inputs/config_shen2023_fig2_<předpětí>_<úhel>.json`: předpětí `0V`, `p5V`, `m5V` na tělese
+i všech anténách a dopad na rovník pod úhlem `10deg`, `30deg`, `45deg` od ANT3 směrem k ANT4. Antény
+ANT1–ANT4 leží na 45°, 135°, 225° a 315°. Ostatní parametry jsou stejné jako u Obr. 6: plovoucí sonda,
+tenké antény, Q = 7,8·10⁻¹⁴ C, ionty 9,8 km/s v kuželu 45°, izotropní elektrony a záznam 160 µs.
+
+```bash
+python -u main.py --config inputs/config_shen2023_fig2_0V_10deg.json --dim 3 --no-visualize
+```
+
+Očekávané trendy z článku:
+- dipól `V_ANT,3 - V_ANT,4` je nejvýraznější u 10°, slábne u 30° a u 45° je téměř nulový. Jeho kladná
+  část trvá asi 30 µs (L/v_i);
+- monopóly ANT1 a ANT2 jsou si podobné, protože obě antény leží daleko od místa dopadu;
+- při +5 V je záporná elektronová špička monopólů menší než při 0 V a kladná část zůstává;
+- při −5 V převažuje záporný signál, protože víc elektronů uniká a sonda sebere část iontů.
+
 Vyhodnocení běhů 4 a 5:
 
 ```bash
